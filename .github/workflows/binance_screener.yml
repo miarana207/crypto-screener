@@ -1,134 +1,200 @@
 name: Binance Screener
 
 on:
-  workflow_dispatch:
+workflow_dispatch:
 
-  schedule:
-    - cron: "0 * * * *"
+schedule:
+- cron: "0 * * * *"
 
 permissions:
-  contents: read
+contents: read
 
 jobs:
-  run-screener:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+run-screener:
+runs-on: ubuntu-latest
+timeout-minutes: 20
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+```
+steps:
+  - name: Checkout repository
+    uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+  - name: Set up Python
+    uses: actions/setup-python@v5
+    with:
+      python-version: "3.11"
 
-      - name: Verify files
-        run: |
-          echo "Repository:"
-          pwd
-          echo
-          echo "Files:"
-          find . -maxdepth 3 -type f | sort
-          echo
-          echo "Python:"
-          python --version
+  - name: Verify files
+    run: |
+      echo "Repository:"
+      pwd
+      echo
+      echo "Files:"
+      find . -maxdepth 3 -type f | sort
+      echo
+      echo "Python:"
+      python --version
 
-      - name: Run Binance Screener
-        env:
-          # ------------------------------------------------------------
-          # BINANCE
-          # ------------------------------------------------------------
-          BINANCE_BASE_URL: "https://data-api.binance.vision"
+  - name: Run Binance Multi-Market Screener
+    env:
 
-          # ------------------------------------------------------------
-          # UNIVERSE
-          # ------------------------------------------------------------
-          # Quotes autorisés, séparés par des virgules.
-          QUOTE_ASSETS: "USDT"
+      # ==========================================================
+      # BINANCE ENDPOINTS
+      # ==========================================================
 
-          # Exclusions configurables.
-          EXCLUDE_STABLECOINS: "true"
-          EXCLUDE_LEVERAGED_TOKENS: "true"
+      BINANCE_SPOT_BASE_URL: "https://data-api.binance.vision"
+      BINANCE_BASE_URL: "https://data-api.binance.vision"
 
-          # ------------------------------------------------------------
-          # CRITERES DE SELECTION
-          # ------------------------------------------------------------
-          MIN_24H_QUOTE_VOLUME: "5000000"
-          MIN_24H_TRADES: "1000"
+      BINANCE_USDM_BASE_URL: "https://fapi.binance.com"
+      BINANCE_COINM_BASE_URL: "https://dapi.binance.com"
+      BINANCE_OPTIONS_BASE_URL: "https://eapi.binance.com"
+      BINANCE_TOKENIZED_BASE_URL: "https://api.binance.com"
 
-          # Valeurs volontairement larges au départ.
-          # Elles permettent de ne pas imposer artificiellement
-          # une direction au marché.
-          MIN_24H_CHANGE_PERCENT: "-100"
-          MAX_24H_CHANGE_PERCENT: "100"
+      # ==========================================================
+      # API KEY
+      #
+      # Required only for Binance Tokenized Stocks MARKET_DATA.
+      #
+      # Create the GitHub secret:
+      # BINANCE_API_KEY
+      #
+      # Never put the actual key directly in this file.
+      # ==========================================================
 
-          # Spread maximum en %.
-          MAX_SPREAD_PERCENT: "0.50"
+      BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
 
-          # Prix minimum.
-          MIN_PRICE: "0.00000001"
+      # ==========================================================
+      # MARKETS
+      # ==========================================================
 
-          # ------------------------------------------------------------
-          # ANALYSE TECHNIQUE
-          # ------------------------------------------------------------
-          TECHNICAL_ENABLED: "true"
+      ENABLE_SPOT: "true"
+      ENABLE_MARGIN: "true"
 
-          # Timeframe.
-          TECHNICAL_INTERVAL: "1h"
+      ENABLE_USDM_FUTURES: "true"
+      ENABLE_COINM_FUTURES: "true"
 
-          # Nombre de bougies historiques.
-          TECHNICAL_KLINES_LIMIT: "250"
+      ENABLE_OPTIONS: "true"
 
-          # Indicateurs activables individuellement.
-          ENABLE_EMA: "true"
-          ENABLE_RSI: "true"
-          ENABLE_MACD: "true"
-          ENABLE_ATR: "true"
-          ENABLE_VOLUME_RATIO: "true"
+      ENABLE_TOKENIZED_STOCKS: "true"
 
-          # Périodes.
-          EMA_FAST_PERIOD: "20"
-          EMA_SLOW_PERIOD: "50"
+      # P2P is deliberately not enabled because it does not
+      # use the same public market-data architecture.
+      # No P2P endpoint is invented here.
 
-          RSI_PERIOD: "14"
+      # ==========================================================
+      # SPOT
+      # ==========================================================
 
-          MACD_FAST_PERIOD: "12"
-          MACD_SLOW_PERIOD: "26"
-          MACD_SIGNAL_PERIOD: "9"
+      QUOTE_ASSETS: "USDT"
 
-          ATR_PERIOD: "14"
-          VOLUME_MA_PERIOD: "20"
+      EXCLUDE_STABLECOINS: "true"
+      EXCLUDE_LEVERAGED_TOKENS: "true"
 
-          # Nombre maximum d'actifs auxquels appliquer
-          # l'analyse technique.
-          #
-          # 0 = tous les survivants.
-          #
-          # Pour commencer, 300 est plus prudent vis-à-vis
-          # du temps d'exécution et des limites API.
-          TECHNICAL_MAX_ASSETS: "300"
+      MIN_24H_QUOTE_VOLUME: "5000000"
+      MIN_24H_TRADES: "1000"
 
-          # Nombre de requêtes techniques simultanées.
-          TECHNICAL_WORKERS: "8"
+      MIN_24H_CHANGE_PERCENT: "-100"
+      MAX_24H_CHANGE_PERCENT: "100"
 
-          # ------------------------------------------------------------
-          # API
-          # ------------------------------------------------------------
-          HTTP_TIMEOUT_SECONDS: "20"
-          HTTP_RETRIES: "3"
+      MAX_SPREAD_PERCENT: "0.50"
 
-          # ------------------------------------------------------------
-          # EMAIL
-          # ------------------------------------------------------------
-          EMAIL_HOST: "smtp.gmail.com"
-          EMAIL_PORT: "465"
+      MIN_PRICE: "0.00000001"
 
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+      # ==========================================================
+      # FUTURES
+      # ==========================================================
 
-          EMAIL_TOP_RESULTS: "50"
+      FUTURES_QUOTE_ASSETS: "USDT,USDC"
 
-        run: |
-          python -u screener.py
+      FUTURES_CONTRACT_TYPES: "PERPETUAL"
+
+      MIN_FUTURES_QUOTE_VOLUME: "5000000"
+
+      MIN_FUTURES_TRADES: "1000"
+
+      MAX_FUTURES_SPREAD_PERCENT: "0.20"
+
+      # Large initial range:
+      # we do NOT artificially select long or short.
+      MIN_FUNDING_RATE_PERCENT: "-1.0"
+      MAX_FUNDING_RATE_PERCENT: "1.0"
+
+      # ==========================================================
+      # OPTIONS
+      # ==========================================================
+
+      OPTIONS_QUOTE_ASSETS: "USDT"
+
+      # 0 = no minimum at this stage.
+      # We first want to observe the real distribution.
+      MIN_OPTIONS_QUOTE_VOLUME: "0"
+
+      MIN_OPTIONS_TRADES: "0"
+
+      MAX_OPTIONS_SPREAD_PERCENT: "5.0"
+
+      OPTIONS_MAX_ASSETS: "500"
+
+      # ==========================================================
+      # TOKENIZED STOCKS
+      # ==========================================================
+
+      TOKENIZED_MAX_ASSETS: "100"
+
+      MAX_TOKENIZED_SPREAD_PERCENT: "1.0"
+
+      # ==========================================================
+      # TECHNICAL ANALYSIS
+      # ==========================================================
+
+      TECHNICAL_ENABLED: "true"
+
+      TECHNICAL_INTERVAL: "1h"
+
+      TECHNICAL_KLINES_LIMIT: "250"
+
+      ENABLE_EMA: "true"
+      ENABLE_RSI: "true"
+      ENABLE_MACD: "true"
+      ENABLE_ATR: "true"
+      ENABLE_VOLUME_RATIO: "true"
+
+      EMA_FAST_PERIOD: "20"
+      EMA_SLOW_PERIOD: "50"
+
+      RSI_PERIOD: "14"
+
+      MACD_FAST_PERIOD: "12"
+      MACD_SLOW_PERIOD: "26"
+      MACD_SIGNAL_PERIOD: "9"
+
+      ATR_PERIOD: "14"
+      VOLUME_MA_PERIOD: "20"
+
+      TECHNICAL_MAX_ASSETS: "300"
+
+      TECHNICAL_WORKERS: "8"
+
+      # ==========================================================
+      # HTTP
+      # ==========================================================
+
+      HTTP_TIMEOUT_SECONDS: "20"
+      HTTP_RETRIES: "3"
+
+      # ==========================================================
+      # EMAIL
+      # ==========================================================
+
+      EMAIL_HOST: "smtp.gmail.com"
+      EMAIL_PORT: "465"
+
+      EMAIL_USER: ${{ secrets.EMAIL_USER }}
+      EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+      EMAIL_TO: ${{ secrets.EMAIL_TO }}
+
+      EMAIL_TOP_RESULTS: "50"
+
+    run: |
+      python -u screener.py
+```
