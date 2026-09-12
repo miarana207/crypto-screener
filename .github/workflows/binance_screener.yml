@@ -69,6 +69,13 @@ jobs:
           MIN_ORDER_BOOK_DEPTH_QUOTE: "25000"
           ORDER_BOOK_DEPTH_WORKERS: "8"
 
+          # Volatilité Spot : filtre ATR(14) sur bougies 1h, après le spread.
+          VOLATILITY_ENABLED: "true"
+          VOLATILITY_INTERVAL: "1h"
+          VOLATILITY_ATR_PERIOD: "14"
+          MIN_VOLATILITY_PERCENT: "0.75"
+          MAX_VOLATILITY_PERCENT: ""
+
           MIN_PRICE: "0.00000001"
 
           FUTURES_QUOTE_ASSETS: "USDT,USDC"
