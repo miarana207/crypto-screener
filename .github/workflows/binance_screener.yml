@@ -14,6 +14,7 @@ run-screener:
 runs-on: ubuntu-latest
 timeout-minutes: 20
 
+```
 steps:
   - name: Checkout repository
     uses: actions/checkout@v4
@@ -36,13 +37,12 @@ steps:
 
   - name: Run Binance Multi-Market Screener
     env:
-
       # ==========================================================
       # BINANCE ENDPOINTS
       # ==========================================================
 
-      BINANCE_SPOT_BASE_URL: "https://data-api.binance.vision"
       BINANCE_BASE_URL: "https://data-api.binance.vision"
+      BINANCE_SPOT_BASE_URL: "https://data-api.binance.vision"
 
       BINANCE_USDM_BASE_URL: "https://fapi.binance.com"
       BINANCE_COINM_BASE_URL: "https://dapi.binance.com"
@@ -50,35 +50,26 @@ steps:
       BINANCE_TOKENIZED_BASE_URL: "https://api.binance.com"
 
       # ==========================================================
-      # API KEY
+      # BINANCE API KEY
       #
-      # Required only for Binance Tokenized Stocks MARKET_DATA.
+      # Nécessaire pour les endpoints Tokenized Stocks.
       #
-      # Create the GitHub secret:
+      # Secret GitHub à créer :
       # BINANCE_API_KEY
-      #
-      # Never put the actual key directly in this file.
       # ==========================================================
 
       BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
 
       # ==========================================================
-      # MARKETS
+      # MARCHÉS
       # ==========================================================
 
       ENABLE_SPOT: "true"
       ENABLE_MARGIN: "true"
-
       ENABLE_USDM_FUTURES: "true"
       ENABLE_COINM_FUTURES: "true"
-
       ENABLE_OPTIONS: "true"
-
       ENABLE_TOKENIZED_STOCKS: "true"
-
-      # P2P is deliberately not enabled because it does not
-      # use the same public market-data architecture.
-      # No P2P endpoint is invented here.
 
       # ==========================================================
       # SPOT
@@ -100,7 +91,7 @@ steps:
       MIN_PRICE: "0.00000001"
 
       # ==========================================================
-      # FUTURES
+      # USDⓈ-M / COIN-M FUTURES
       # ==========================================================
 
       FUTURES_QUOTE_ASSETS: "USDT,USDC"
@@ -108,13 +99,11 @@ steps:
       FUTURES_CONTRACT_TYPES: "PERPETUAL"
 
       MIN_FUTURES_QUOTE_VOLUME: "5000000"
-
       MIN_FUTURES_TRADES: "1000"
 
       MAX_FUTURES_SPREAD_PERCENT: "0.20"
 
-      # Large initial range:
-      # we do NOT artificially select long or short.
+      # Plage volontairement très large au premier run.
       MIN_FUNDING_RATE_PERCENT: "-1.0"
       MAX_FUNDING_RATE_PERCENT: "1.0"
 
@@ -124,10 +113,9 @@ steps:
 
       OPTIONS_QUOTE_ASSETS: "USDT"
 
-      # 0 = no minimum at this stage.
-      # We first want to observe the real distribution.
+      # Pas encore de filtre volume/trades :
+      # on veut d'abord observer la distribution réelle.
       MIN_OPTIONS_QUOTE_VOLUME: "0"
-
       MIN_OPTIONS_TRADES: "0"
 
       MAX_OPTIONS_SPREAD_PERCENT: "5.0"
@@ -143,13 +131,12 @@ steps:
       MAX_TOKENIZED_SPREAD_PERCENT: "1.0"
 
       # ==========================================================
-      # TECHNICAL ANALYSIS
+      # ANALYSE TECHNIQUE
       # ==========================================================
 
       TECHNICAL_ENABLED: "true"
 
       TECHNICAL_INTERVAL: "1h"
-
       TECHNICAL_KLINES_LIMIT: "250"
 
       ENABLE_EMA: "true"
@@ -171,11 +158,10 @@ steps:
       VOLUME_MA_PERIOD: "20"
 
       TECHNICAL_MAX_ASSETS: "300"
-
       TECHNICAL_WORKERS: "8"
 
       # ==========================================================
-      # HTTP
+      # API / HTTP
       # ==========================================================
 
       HTTP_TIMEOUT_SECONDS: "20"
@@ -196,3 +182,4 @@ steps:
 
     run: |
       python -u screener.py
+```
