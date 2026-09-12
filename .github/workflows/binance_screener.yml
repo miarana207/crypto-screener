@@ -1,8 +1,7 @@
 name: Binance Screener
 
-on:
+"on":
 workflow_dispatch:
-
 schedule:
 - cron: "0 * * * *"
 
@@ -36,6 +35,7 @@ steps:
 
   - name: Run Binance Multi-Market Screener
     env:
+
       # ==========================================================
       # BINANCE ENDPOINTS
       # ==========================================================
@@ -53,7 +53,7 @@ steps:
       #
       # Nécessaire pour les endpoints Tokenized Stocks.
       #
-      # Secret GitHub à créer :
+      # Secret GitHub :
       # BINANCE_API_KEY
       # ==========================================================
 
@@ -113,7 +113,7 @@ steps:
       OPTIONS_QUOTE_ASSETS: "USDT"
 
       # Pas encore de filtre volume/trades :
-      # on veut d'abord observer la distribution réelle.
+      # on veut observer la distribution réelle au premier run.
       MIN_OPTIONS_QUOTE_VOLUME: "0"
       MIN_OPTIONS_TRADES: "0"
 
