@@ -1,14 +1,24 @@
+```yaml
 name: Binance Automated Screener
 
 on:
   schedule:
-    # Exécution automatique toutes les heures (ajustez selon vos besoins)
-    - cron: '0 * * * *'
-  workflow_dispatch: # Permet de lancer le workflow manuellement depuis GitHub
+    # Exécution automatique toutes les heures.
+    # Pour toutes les 30 minutes :
+    # - cron: "*/30 * * * *"
+    - cron: "0 * * * *"
+
+  # Permet une exécution manuelle depuis GitHub.
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   run-screener:
     runs-on: ubuntu-latest
+
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -17,17 +27,96 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.11"
+          cache: "pip"
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
-      - name: Run screener script
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          fi
+
+      - name: Run Binance screener
         env:
           PYTHONUNBUFFERED: "1"
+
+          # ==================================================
+          # EMAIL
+          # ==================================================
+
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-        run: python -u screener.py
+
+          # ==================================================
+          # BINANCE
+          # ==================================================
+
+          BINANCE_BASE_URL: "https://data-api.binance.vision"
+
+          # ==================================================
+          # SCREENING PARAMETERS
+          # ==================================================
+
+          QUOTE_ASSETS: "USDT"
+
+          MIN_24H_QUOTE_VOLUME: "5000000"
+          MIN_24H_TRADES: "1000"
+
+          MIN_24H_CHANGE_PERCENT: "-100"
+          MAX_24H_CHANGE_PERCENT: "100"
+
+          MAX_SPREAD_PERCENT: "0.50"
+
+          MIN_PRICE: "0.00000001"
+
+          # ==================================================
+          # EXCLUSIONS
+          # ==================================================
+
+          EXCLUDE_STABLECOINS: "true"
+          EXCLUDE_LEVERAGED_TOKENS: "true"
+
+          # ==================================================
+          # TECHNICAL ANALYSIS
+          # ==================================================
+
+          TECHNICAL_ENABLED: "true"
+
+          TECHNICAL_INTERVAL: "1h"
+          TECHNICAL_KLINES_LIMIT: "250"
+
+          EMA_FAST: "20"
+          EMA_SLOW: "50"
+
+          RSI_PERIOD: "14"
+
+          MACD_FAST: "12"
+          MACD_SLOW: "26"
+          MACD_SIGNAL: "9"
+
+          ATR_PERIOD: "14"
+
+          VOLUME_MA_PERIOD: "20"
+
+          # ==================================================
+          # API PROTECTION
+          # ==================================================
+
+          TECHNICAL_MAX_ASSETS: "500"
+          TECHNICAL_WORKERS: "8"
+
+          API_TIMEOUT: "20"
+          API_RETRIES: "3"
+
+          # ==================================================
+          # EMAIL REPORT
+          # ==================================================
+
+          EMAIL_TOP_RESULTS: "50"
+
+        run: |
+          python -u screener.py
+```
