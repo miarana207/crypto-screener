@@ -1,146 +1,105 @@
+BINANCE SCREENER
+================
+
+Objectif
+--------
+Scanner automatiquement l'univers Binance Spot à intervalles réguliers.
+
+Architecture
+------------
+1. Récupération dynamique de l'univers Binance via exchangeInfo.
+2. Récupération des statistiques 24h.
+3. Application séquentielle des critères.
+4. Comptabilisation des sélectionnés / rejetés à chaque étape.
+5. Analyse technique des survivants.
+6. Classement des résultats techniques.
+7. Envoi d'un rapport détaillé par email.
+
+Le programme utilise uniquement la bibliothèque standard Python.
+Aucun requirements.txt n'est nécessaire.
+
+Important
+---------
+Les critères de sélection sont volontairement configurables via
+les variables d'environnement du workflow GitHub Actions.
+
+Le programme ne constitue PAS un système d'exécution d'ordres.
+Il s'agit d'un scanner / outil d'analyse.
+"""
+
 from __future__ import annotations
 
+import concurrent.futures
 import json
-import logging
 import math
 import os
 import smtplib
+import ssl
+import statistics
+import sys
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.message import EmailMessage
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
-# ============================================================
-# LOGGING
-# ============================================================
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
-
-LOGGER = logging.getLogger(__name__)
-
-
-# ============================================================
-# CONFIGURATION BINANCE
-# ============================================================
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
 BINANCE_BASE_URL = os.getenv(
     "BINANCE_BASE_URL",
     "https://data-api.binance.vision",
 ).rstrip("/")
 
-EXCHANGE_INFO_ENDPOINT = "/api/v3/exchangeInfo"
-TICKER_24HR_ENDPOINT = "/api/v3/ticker/24hr"
-KLINES_ENDPOINT = "/api/v3/klines"
-
-API_TIMEOUT = int(
-    os.getenv("API_TIMEOUT", "20")
-)
-
-API_RETRIES = int(
-    os.getenv("API_RETRIES", "3")
-)
-
-
-# ============================================================
-# CONFIGURATION DE L'UNIVERS
-# ============================================================
-
 QUOTE_ASSETS = {
-    item.strip().upper()
-    for item in os.getenv(
-        "QUOTE_ASSETS",
-        "USDT",
-    ).split(",")
-    if item.strip()
+    x.strip().upper()
+    for x in os.getenv("QUOTE_ASSETS", "USDT").split(",")
+    if x.strip()
 }
 
-
-# ============================================================
-# CRITÈRES DE SCREENING
-# ============================================================
-
-MIN_24H_QUOTE_VOLUME = float(
-    os.getenv(
-        "MIN_24H_QUOTE_VOLUME",
-        "5000000",
-    )
-)
-
-MIN_24H_TRADES = int(
-    os.getenv(
-        "MIN_24H_TRADES",
-        "1000",
-    )
-)
-
-MIN_24H_CHANGE_PERCENT = float(
-    os.getenv(
-        "MIN_24H_CHANGE_PERCENT",
-        "-100",
-    )
-)
-
-MAX_24H_CHANGE_PERCENT = float(
-    os.getenv(
-        "MAX_24H_CHANGE_PERCENT",
-        "100",
-    )
-)
-
-MAX_SPREAD_PERCENT = float(
-    os.getenv(
-        "MAX_SPREAD_PERCENT",
-        "0.50",
-    )
-)
-
-MIN_PRICE = float(
-    os.getenv(
-        "MIN_PRICE",
-        "0.00000001",
-    )
-)
-
-
-# ============================================================
-# EXCLUSIONS
-# ============================================================
-
 EXCLUDE_STABLECOINS = (
-    os.getenv(
-        "EXCLUDE_STABLECOINS",
-        "true",
-    ).lower()
-    == "true"
+    os.getenv("EXCLUDE_STABLECOINS", "true").lower() == "true"
 )
 
 EXCLUDE_LEVERAGED_TOKENS = (
-    os.getenv(
-        "EXCLUDE_LEVERAGED_TOKENS",
-        "true",
-    ).lower()
-    == "true"
+    os.getenv("EXCLUDE_LEVERAGED_TOKENS", "true").lower() == "true"
+)
+
+MIN_24H_QUOTE_VOLUME = float(
+    os.getenv("MIN_24H_QUOTE_VOLUME", "5000000")
+)
+
+MIN_24H_TRADES = int(
+    os.getenv("MIN_24H_TRADES", "1000")
+)
+
+MIN_24H_CHANGE_PERCENT = float(
+    os.getenv("MIN_24H_CHANGE_PERCENT", "-100")
+)
+
+MAX_24H_CHANGE_PERCENT = float(
+    os.getenv("MAX_24H_CHANGE_PERCENT", "100")
+)
+
+MAX_SPREAD_PERCENT = float(
+    os.getenv("MAX_SPREAD_PERCENT", "0.50")
+)
+
+MIN_PRICE = float(
+    os.getenv("MIN_PRICE", "0.00000001")
 )
 
 
-# ============================================================
-# ANALYSE TECHNIQUE
-# ============================================================
+# Technical analysis
 
 TECHNICAL_ENABLED = (
-    os.getenv(
-        "TECHNICAL_ENABLED",
-        "true",
-    ).lower()
-    == "true"
+    os.getenv("TECHNICAL_ENABLED", "true").lower() == "true"
 )
 
 TECHNICAL_INTERVAL = os.getenv(
@@ -149,107 +108,285 @@ TECHNICAL_INTERVAL = os.getenv(
 )
 
 TECHNICAL_KLINES_LIMIT = int(
-    os.getenv(
-        "TECHNICAL_KLINES_LIMIT",
-        "250",
-    )
+    os.getenv("TECHNICAL_KLINES_LIMIT", "250")
 )
 
-EMA_FAST = int(
-    os.getenv(
-        "EMA_FAST",
-        "20",
-    )
+ENABLE_EMA = (
+    os.getenv("ENABLE_EMA", "true").lower() == "true"
 )
 
-EMA_SLOW = int(
-    os.getenv(
-        "EMA_SLOW",
-        "50",
-    )
+ENABLE_RSI = (
+    os.getenv("ENABLE_RSI", "true").lower() == "true"
+)
+
+ENABLE_MACD = (
+    os.getenv("ENABLE_MACD", "true").lower() == "true"
+)
+
+ENABLE_ATR = (
+    os.getenv("ENABLE_ATR", "true").lower() == "true"
+)
+
+ENABLE_VOLUME_RATIO = (
+    os.getenv("ENABLE_VOLUME_RATIO", "true").lower() == "true"
+)
+
+EMA_FAST_PERIOD = int(
+    os.getenv("EMA_FAST_PERIOD", "20")
+)
+
+EMA_SLOW_PERIOD = int(
+    os.getenv("EMA_SLOW_PERIOD", "50")
 )
 
 RSI_PERIOD = int(
-    os.getenv(
-        "RSI_PERIOD",
-        "14",
-    )
+    os.getenv("RSI_PERIOD", "14")
 )
 
-MACD_FAST = int(
-    os.getenv(
-        "MACD_FAST",
-        "12",
-    )
+MACD_FAST_PERIOD = int(
+    os.getenv("MACD_FAST_PERIOD", "12")
 )
 
-MACD_SLOW = int(
-    os.getenv(
-        "MACD_SLOW",
-        "26",
-    )
+MACD_SLOW_PERIOD = int(
+    os.getenv("MACD_SLOW_PERIOD", "26")
 )
 
-MACD_SIGNAL = int(
-    os.getenv(
-        "MACD_SIGNAL",
-        "9",
-    )
+MACD_SIGNAL_PERIOD = int(
+    os.getenv("MACD_SIGNAL_PERIOD", "9")
 )
 
 ATR_PERIOD = int(
-    os.getenv(
-        "ATR_PERIOD",
-        "14",
-    )
+    os.getenv("ATR_PERIOD", "14")
 )
 
 VOLUME_MA_PERIOD = int(
-    os.getenv(
-        "VOLUME_MA_PERIOD",
-        "20",
-    )
+    os.getenv("VOLUME_MA_PERIOD", "20")
 )
 
 TECHNICAL_MAX_ASSETS = int(
-    os.getenv(
-        "TECHNICAL_MAX_ASSETS",
-        "500",
-    )
+    os.getenv("TECHNICAL_MAX_ASSETS", "300")
 )
 
 TECHNICAL_WORKERS = int(
-    os.getenv(
-        "TECHNICAL_WORKERS",
-        "8",
-    )
+    os.getenv("TECHNICAL_WORKERS", "8")
 )
+
+
+# HTTP
+
+HTTP_TIMEOUT_SECONDS = int(
+    os.getenv("HTTP_TIMEOUT_SECONDS", "20")
+)
+
+HTTP_RETRIES = int(
+    os.getenv("HTTP_RETRIES", "3")
+)
+
+
+# Email
+
+EMAIL_HOST = os.getenv(
+    "EMAIL_HOST",
+    "smtp.gmail.com",
+)
+
+EMAIL_PORT = int(
+    os.getenv("EMAIL_PORT", "465")
+)
+
+EMAIL_USER = os.getenv("EMAIL_USER", "")
+EMAIL_PASS = os.getenv("EMAIL_PASS", "")
+EMAIL_TO = os.getenv("EMAIL_TO", "")
 
 EMAIL_TOP_RESULTS = int(
-    os.getenv(
-        "EMAIL_TOP_RESULTS",
-        "50",
-    )
+    os.getenv("EMAIL_TOP_RESULTS", "50")
 )
 
 
-# ============================================================
-# CONSTANTES D'EXCLUSION
-# ============================================================
+# ============================================================================
+# UTILITAIRES
+# ============================================================================
 
-STABLECOINS = {
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+
+    if value is None:
+        return default
+
+    return value.lower() in {
+        "1",
+        "true",
+        "yes",
+        "y",
+        "on",
+    }
+
+
+def safe_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def pct(value: float) -> str:
+    return f"{value:.2f}%"
+
+
+def number(value: float) -> str:
+    if abs(value) >= 1_000_000_000:
+        return f"{value / 1_000_000_000:.2f} B"
+
+    if abs(value) >= 1_000_000:
+        return f"{value / 1_000_000:.2f} M"
+
+    if abs(value) >= 1_000:
+        return f"{value / 1_000:.2f} K"
+
+    return f"{value:.2f}"
+
+
+def utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def log(message: str) -> None:
+    timestamp = utc_now().strftime("%Y-%m-%d %H:%M:%S UTC")
+    print(f"[{timestamp}] {message}", flush=True)
+
+
+# ============================================================================
+# HTTP BINANCE
+# ============================================================================
+
+def http_get_json(
+    path: str,
+    params: Optional[Dict[str, Any]] = None,
+) -> Any:
+    """
+    GET JSON avec retry simple.
+
+    Aucun API key n'est nécessaire pour les endpoints publics utilisés.
+    """
+
+    url = f"{BINANCE_BASE_URL}{path}"
+
+    if params:
+        query = urllib.parse.urlencode(params)
+        url = f"{url}?{query}"
+
+    last_error: Optional[Exception] = None
+
+    for attempt in range(1, HTTP_RETRIES + 1):
+
+        try:
+            request = urllib.request.Request(
+                url,
+                headers={
+                    "User-Agent": "Binance-Screener/1.0",
+                    "Accept": "application/json",
+                },
+                method="GET",
+            )
+
+            with urllib.request.urlopen(
+                request,
+                timeout=HTTP_TIMEOUT_SECONDS,
+            ) as response:
+
+                status = response.status
+                body = response.read()
+
+                if status != 200:
+                    raise RuntimeError(
+                        f"HTTP {status}: {body[:500]!r}"
+                    )
+
+                return json.loads(body.decode("utf-8"))
+
+        except Exception as exc:
+            last_error = exc
+
+            log(
+                f"API error attempt {attempt}/"
+                f"{HTTP_RETRIES}: {exc}"
+            )
+
+            if attempt < HTTP_RETRIES:
+                time.sleep(2 * attempt)
+
+    raise RuntimeError(
+        f"Unable to retrieve {url}: {last_error}"
+    )
+
+
+# ============================================================================
+# BINANCE UNIVERSE
+# ============================================================================
+
+def fetch_exchange_info() -> Dict[str, Any]:
+    log("Fetching Binance exchangeInfo...")
+    return http_get_json("/api/v3/exchangeInfo")
+
+
+def fetch_24h_tickers() -> List[Dict[str, Any]]:
+    log("Fetching Binance 24h ticker...")
+    data = http_get_json("/api/v3/ticker/24hr")
+
+    if not isinstance(data, list):
+        raise RuntimeError(
+            "Unexpected response from /api/v3/ticker/24hr"
+        )
+
+    return data
+
+
+def fetch_book_tickers() -> List[Dict[str, Any]]:
+    log("Fetching Binance book ticker...")
+    data = http_get_json("/api/v3/ticker/bookTicker")
+
+    if not isinstance(data, list):
+        raise RuntimeError(
+            "Unexpected response from /api/v3/ticker/bookTicker"
+        )
+
+    return data
+
+
+# ============================================================================
+# STABLECOINS / LEVERAGED TOKENS
+# ============================================================================
+
+STABLECOIN_BASES = {
     "USDT",
     "USDC",
+    "BUSD",
     "FDUSD",
     "TUSD",
     "USDP",
     "DAI",
-    "USDE",
     "USDD",
     "PYUSD",
-    "BUSD",
-    "USD1",
+    "EUR",
+    "GBP",
+    "AUD",
+    "TRY",
+    "BRL",
+    "UAH",
+    "PLN",
+    "RON",
+    "ARS",
+    "ZAR",
+    "NGN",
 }
+
 
 LEVERAGED_SUFFIXES = (
     "UP",
@@ -259,938 +396,413 @@ LEVERAGED_SUFFIXES = (
 )
 
 
-# ============================================================
-# HTTP
-# ============================================================
+def is_stablecoin_base(asset: str) -> bool:
+    return asset.upper() in STABLECOIN_BASES
 
-def http_get_json(
-    endpoint: str,
-    params: dict | None = None,
-) -> object:
-    """
-    Effectue une requête GET vers Binance et retourne le JSON.
 
-    Une logique de retry est utilisée pour les erreurs réseau
-    temporaires et certaines erreurs HTTP.
-    """
+def is_leveraged_token(asset: str) -> bool:
+    asset = asset.upper()
 
-    url = f"{BINANCE_BASE_URL}{endpoint}"
-
-    if params:
-        query = urllib.parse.urlencode(params)
-        url = f"{url}?{query}"
-
-    last_error = None
-
-    for attempt in range(
-        1,
-        API_RETRIES + 1,
-    ):
-        try:
-            LOGGER.info(
-                "Requête Binance [%d/%d] : %s",
-                attempt,
-                API_RETRIES,
-                url,
-            )
-
-            request = urllib.request.Request(
-                url,
-                headers={
-                    "User-Agent": (
-                        "Mozilla/5.0 "
-                        "(compatible; "
-                        "BinanceProgrammableScreener/1.0)"
-                    ),
-                    "Accept": "application/json",
-                },
-                method="GET",
-            )
-
-            with urllib.request.urlopen(
-                request,
-                timeout=API_TIMEOUT,
-            ) as response:
-
-                if response.status != 200:
-                    raise RuntimeError(
-                        f"HTTP {response.status}"
-                    )
-
-                payload = response.read().decode(
-                    "utf-8"
-                )
-
-                return json.loads(payload)
-
-        except urllib.error.HTTPError as exc:
-            last_error = exc
-
-            LOGGER.warning(
-                "Erreur HTTP Binance %s : %s",
-                exc.code,
-                exc.reason,
-            )
-
-            if exc.code == 429:
-                time.sleep(
-                    min(
-                        5 * attempt,
-                        30,
-                    )
-                )
-
-            elif exc.code in (
-                403,
-                408,
-                500,
-                502,
-                503,
-                504,
-            ):
-                time.sleep(
-                    min(
-                        2 ** attempt,
-                        15,
-                    )
-                )
-
-            else:
-                raise
-
-        except (
-            urllib.error.URLError,
-            TimeoutError,
-            json.JSONDecodeError,
-            RuntimeError,
-        ) as exc:
-
-            last_error = exc
-
-            LOGGER.warning(
-                "Erreur réseau/API : %s",
-                exc,
-            )
-
-            if attempt < API_RETRIES:
-                time.sleep(
-                    min(
-                        2 ** attempt,
-                        15,
-                    )
-                )
-
-        except Exception as exc:
-            last_error = exc
-
-            LOGGER.exception(
-                "Erreur inattendue pendant la requête Binance."
-            )
-
-            if attempt < API_RETRIES:
-                time.sleep(
-                    min(
-                        2 ** attempt,
-                        15,
-                    )
-                )
-
-    raise RuntimeError(
-        f"Échec définitif de la requête Binance : "
-        f"{last_error}"
+    return any(
+        asset.endswith(suffix)
+        for suffix in LEVERAGED_SUFFIXES
     )
 
 
-# ============================================================
-# UNIVERS BINANCE
-# ============================================================
+# ============================================================================
+# SYMBOL REPRESENTATION
+# ============================================================================
 
-def get_exchange_info() -> dict:
-    """
-    Récupère les informations de marché Binance.
-    """
+@dataclass
+class SymbolRecord:
+    symbol: str
+    base_asset: str
+    quote_asset: str
 
-    LOGGER.info(
-        "Récupération de exchangeInfo..."
-    )
+    status: str = ""
+    spot_allowed: bool = False
 
-    data = http_get_json(
-        EXCHANGE_INFO_ENDPOINT
-    )
+    last_price: float = 0.0
+    price_change_percent: float = 0.0
+    quote_volume: float = 0.0
+    trades: int = 0
 
-    if not isinstance(data, dict):
-        raise RuntimeError(
-            "Réponse exchangeInfo invalide."
-        )
+    bid_price: float = 0.0
+    ask_price: float = 0.0
+    spread_percent: float = 0.0
 
-    return data
+    ticker_available: bool = False
 
 
-def get_24h_tickers() -> list[dict]:
-    """
-    Récupère les statistiques 24h de tous les tickers.
-    """
-
-    LOGGER.info(
-        "Récupération des statistiques 24h..."
-    )
-
-    data = http_get_json(
-        TICKER_24HR_ENDPOINT
-    )
-
-    if not isinstance(data, list):
-        raise RuntimeError(
-            "Réponse ticker/24hr invalide."
-        )
-
-    LOGGER.info(
-        "Tickers reçus : %d",
-        len(data),
-    )
-
-    return data
-
+# ============================================================================
+# BUILD UNIVERSE
+# ============================================================================
 
 def build_universe(
-    exchange_info: dict,
-) -> list[dict]:
-    """
-    Construit la population initiale.
+    exchange_info: Dict[str, Any],
+) -> List[SymbolRecord]:
 
-    Aucun filtre économique n'est appliqué ici.
+    symbols = exchange_info.get("symbols", [])
 
-    Cette étape sert à recenser l'univers fourni par Binance.
-    """
-
-    symbols = exchange_info.get(
-        "symbols",
-        [],
-    )
-
-    universe = []
+    universe: List[SymbolRecord] = []
 
     for item in symbols:
 
-        if not isinstance(
-            item,
-            dict,
-        ):
-            continue
-
-        symbol = str(
-            item.get(
-                "symbol",
-                "",
-            )
-        ).upper()
+        symbol = str(item.get("symbol", "")).upper()
 
         if not symbol:
             continue
 
+        base_asset = str(
+            item.get("baseAsset", "")
+        ).upper()
+
+        quote_asset = str(
+            item.get("quoteAsset", "")
+        ).upper()
+
+        status = str(
+            item.get("status", "")
+        ).upper()
+
+        permissions = item.get(
+            "permissions",
+            [],
+        )
+
+        # Binance peut exposer différentes structures
+        # selon la version / configuration de l'API.
+        spot_allowed = (
+            "SPOT" in permissions
+            or item.get("isSpotTradingAllowed") is True
+        )
+
         universe.append(
-            {
-                "symbol": symbol,
-                "status": str(
-                    item.get(
-                        "status",
-                        "",
-                    )
-                ).upper(),
-                "baseAsset": str(
-                    item.get(
-                        "baseAsset",
-                        "",
-                    )
-                ).upper(),
-                "quoteAsset": str(
-                    item.get(
-                        "quoteAsset",
-                        "",
-                    )
-                ).upper(),
-                "permissions": item.get(
-                    "permissions",
-                    [],
-                ),
-                "permissionSets": item.get(
-                    "permissionSets",
-                    [],
-                ),
-            }
+            SymbolRecord(
+                symbol=symbol,
+                base_asset=base_asset,
+                quote_asset=quote_asset,
+                status=status,
+                spot_allowed=spot_allowed,
+            )
         )
 
     return universe
 
 
-# ============================================================
-# UTILITAIRES
-# ============================================================
-
-def to_float(
-    value,
-    default=0.0,
-) -> float:
-
-    try:
-        return float(value)
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return default
-
-
-def to_int(
-    value,
-    default=0,
-) -> int:
-
-    try:
-        return int(value)
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return default
-
-
-def is_spot_symbol(
-    asset: dict,
-) -> bool:
-    """
-    Vérifie la permission Spot lorsque Binance la fournit.
-
-    Si aucune information de permission n'est fournie,
-    l'actif n'est pas rejeté uniquement pour cette raison.
-    """
-
-    permissions = asset.get(
-        "permissions",
-        [],
-    )
-
-    permission_sets = asset.get(
-        "permissionSets",
-        [],
-    )
-
-    if isinstance(
-        permissions,
-        list,
-    ) and permissions:
-
-        return "SPOT" in permissions
-
-    if isinstance(
-        permission_sets,
-        list,
-    ) and permission_sets:
-
-        for group in permission_sets:
-
-            if isinstance(
-                group,
-                list,
-            ):
-
-                if "SPOT" in group:
-                    return True
-
-        return False
-
-    return True
-
-
-def is_leveraged_token(
-    base_asset: str,
-) -> bool:
-
-    base = base_asset.upper()
-
-    return any(
-        base.endswith(suffix)
-        for suffix in LEVERAGED_SUFFIXES
-    )
-
-
-def is_stablecoin(
-    base_asset: str,
-) -> bool:
-
-    return (
-        base_asset.upper()
-        in STABLECOINS
-    )
-
-
-# ============================================================
-# FUSION UNIVERS + MARKET DATA
-# ============================================================
-
 def merge_market_data(
-    universe: list[dict],
-    tickers: list[dict],
-) -> list[dict]:
-    """
-    Fusionne exchangeInfo et ticker/24hr par symbole.
-    """
+    universe: List[SymbolRecord],
+    tickers: List[Dict[str, Any]],
+    book_tickers: List[Dict[str, Any]],
+) -> None:
 
-    ticker_map = {}
+    ticker_map = {
+        str(x.get("symbol", "")).upper(): x
+        for x in tickers
+    }
 
-    for ticker in tickers:
+    book_map = {
+        str(x.get("symbol", "")).upper(): x
+        for x in book_tickers
+    }
 
-        if not isinstance(
-            ticker,
-            dict,
-        ):
-            continue
+    for record in universe:
 
-        symbol = str(
-            ticker.get(
-                "symbol",
-                "",
-            )
-        ).upper()
+        ticker = ticker_map.get(record.symbol)
 
-        if symbol:
-            ticker_map[symbol] = ticker
+        if ticker:
+            record.ticker_available = True
 
-    records = []
-
-    for asset in universe:
-
-        symbol = asset["symbol"]
-
-        ticker = ticker_map.get(
-            symbol
-        )
-
-        record = dict(asset)
-
-        record["ticker_found"] = (
-            ticker is not None
-        )
-
-        if ticker is not None:
-
-            record.update(
-                {
-                    "lastPrice": to_float(
-                        ticker.get(
-                            "lastPrice"
-                        )
-                    ),
-                    "priceChangePercent": to_float(
-                        ticker.get(
-                            "priceChangePercent"
-                        )
-                    ),
-                    "quoteVolume": to_float(
-                        ticker.get(
-                            "quoteVolume"
-                        )
-                    ),
-                    "trades": to_int(
-                        ticker.get(
-                            "count"
-                        )
-                    ),
-                    "highPrice": to_float(
-                        ticker.get(
-                            "highPrice"
-                        )
-                    ),
-                    "lowPrice": to_float(
-                        ticker.get(
-                            "lowPrice"
-                        )
-                    ),
-                    "bidPrice": to_float(
-                        ticker.get(
-                            "bidPrice"
-                        )
-                    ),
-                    "askPrice": to_float(
-                        ticker.get(
-                            "askPrice"
-                        )
-                    ),
-                }
+            record.last_price = safe_float(
+                ticker.get("lastPrice")
             )
 
-        else:
-
-            record.update(
-                {
-                    "lastPrice": 0.0,
-                    "priceChangePercent": 0.0,
-                    "quoteVolume": 0.0,
-                    "trades": 0,
-                    "highPrice": 0.0,
-                    "lowPrice": 0.0,
-                    "bidPrice": 0.0,
-                    "askPrice": 0.0,
-                }
+            record.price_change_percent = safe_float(
+                ticker.get("priceChangePercent")
             )
 
-        records.append(record)
+            record.quote_volume = safe_float(
+                ticker.get("quoteVolume")
+            )
 
-    return records
+            record.trades = safe_int(
+                ticker.get("count")
+            )
+
+        book = book_map.get(record.symbol)
+
+        if book:
+
+            record.bid_price = safe_float(
+                book.get("bidPrice")
+            )
+
+            record.ask_price = safe_float(
+                book.get("askPrice")
+            )
+
+            if (
+                record.bid_price > 0
+                and record.ask_price > 0
+                and record.ask_price >= record.bid_price
+            ):
+                mid = (
+                    record.bid_price
+                    + record.ask_price
+                ) / 2
+
+                if mid > 0:
+                    record.spread_percent = (
+                        (
+                            record.ask_price
+                            - record.bid_price
+                        )
+                        / mid
+                    ) * 100
 
 
-# ============================================================
-# MOTEUR DE CRITÈRES
-# ============================================================
+# ============================================================================
+# CRITERIA
+# ============================================================================
 
-def run_criterion(
+@dataclass
+class CriterionResult:
+    name: str
+    description: str
+    before: int
+    selected: int
+    rejected: int
+    retention_percent: float
+    rejection_percent: float
+
+
+def apply_criterion(
+    current: List[SymbolRecord],
     name: str,
-    records: list[dict],
-    condition,
-    audit: list[dict],
-) -> list[dict]:
-    """
-    Applique un critère et mesure son impact.
+    description: str,
+    predicate,
+    audit: List[CriterionResult],
+) -> List[SymbolRecord]:
 
-    Pour chaque critère :
-    - population avant ;
-    - sélectionnés ;
-    - rejetés ;
-    - taux de rejet ;
-    - taux de conservation.
-    """
+    before = len(current)
 
-    before = len(records)
+    selected_items = [
+        item
+        for item in current
+        if predicate(item)
+    ]
 
-    selected = []
-    rejected = 0
+    selected = len(selected_items)
+    rejected = before - selected
 
-    for record in records:
-
-        try:
-            passed = bool(
-                condition(record)
-            )
-
-        except Exception:
-            passed = False
-
-        if passed:
-            selected.append(record)
-
-        else:
-            rejected += 1
-
-    after = len(selected)
-
-    rejection_rate = (
-        (rejected / before) * 100
-        if before
-        else 0.0
-    )
-
-    retention_rate = (
-        (after / before) * 100
-        if before
-        else 0.0
-    )
+    if before:
+        retention = selected / before * 100
+        rejection = rejected / before * 100
+    else:
+        retention = 0.0
+        rejection = 0.0
 
     audit.append(
-        {
-            "criterion": name,
-            "before": before,
-            "selected": after,
-            "rejected": rejected,
-            "rejection_rate": rejection_rate,
-            "retention_rate": retention_rate,
-        }
+        CriterionResult(
+            name=name,
+            description=description,
+            before=before,
+            selected=selected,
+            rejected=rejected,
+            retention_percent=retention,
+            rejection_percent=rejection,
+        )
     )
 
-    LOGGER.info(
-        "%s | avant=%d | sélectionnés=%d | "
-        "rejetés=%d | rejet=%.2f%%",
-        name,
-        before,
-        after,
-        rejected,
-        rejection_rate,
+    log(
+        f"CRITERION | {name} | "
+        f"before={before} | "
+        f"selected={selected} | "
+        f"rejected={rejected}"
     )
 
-    return selected
+    return selected_items
 
 
-def apply_screening(
-    records: list[dict],
-) -> tuple[list[dict], list[dict]]:
-    """
-    Applique séquentiellement tous les critères.
+def apply_all_criteria(
+    universe: List[SymbolRecord],
+) -> Tuple[List[SymbolRecord], List[CriterionResult]]:
 
-    Chaque critère est indépendant et audité.
-    """
+    current = universe[:]
+    audit: List[CriterionResult] = []
 
-    current = records
-
-    audit = []
-
-    # --------------------------------------------------------
-    # CRITÈRE 1 — STATUT
-    # --------------------------------------------------------
-
-    current = run_criterion(
-        "01 — Statut TRADING",
+    current = apply_criterion(
         current,
-        lambda x:
-            x["status"] == "TRADING",
+        "STATUS_TRADING",
+        "Symbol status == TRADING",
+        lambda x: x.status == "TRADING",
         audit,
     )
 
-    # --------------------------------------------------------
-    # CRITÈRE 2 — SPOT
-    # --------------------------------------------------------
-
-    current = run_criterion(
-        "02 — Permission Spot",
+    current = apply_criterion(
         current,
-        is_spot_symbol,
+        "SPOT_ALLOWED",
+        "Spot trading permission available",
+        lambda x: x.spot_allowed,
         audit,
     )
 
-    # --------------------------------------------------------
-    # CRITÈRE 3 — QUOTE ASSET
-    # --------------------------------------------------------
-
-    current = run_criterion(
-        "03 — Quote asset autorisé",
+    current = apply_criterion(
         current,
-        lambda x:
-            x["quoteAsset"]
-            in QUOTE_ASSETS,
+        "QUOTE_ASSET",
+        f"Quote asset in {sorted(QUOTE_ASSETS)}",
+        lambda x: x.quote_asset in QUOTE_ASSETS,
         audit,
     )
-
-    # --------------------------------------------------------
-    # CRITÈRE 4 — STABLECOINS
-    # --------------------------------------------------------
 
     if EXCLUDE_STABLECOINS:
-
-        current = run_criterion(
-            "04 — Exclusion stablecoins",
+        current = apply_criterion(
             current,
-            lambda x:
-                not is_stablecoin(
-                    x["baseAsset"]
-                ),
+            "EXCLUDE_STABLECOINS",
+            "Base asset is not a stablecoin",
+            lambda x: not is_stablecoin_base(
+                x.base_asset
+            ),
             audit,
         )
-
-    else:
-
-        audit.append(
-            {
-                "criterion":
-                    "04 — Exclusion stablecoins "
-                    "(désactivé)",
-                "before":
-                    len(current),
-                "selected":
-                    len(current),
-                "rejected":
-                    0,
-                "rejection_rate":
-                    0.0,
-                "retention_rate":
-                    100.0,
-            }
-        )
-
-    # --------------------------------------------------------
-    # CRITÈRE 5 — LEVERAGED TOKENS
-    # --------------------------------------------------------
 
     if EXCLUDE_LEVERAGED_TOKENS:
-
-        current = run_criterion(
-            "05 — Exclusion tokens levier",
+        current = apply_criterion(
             current,
-            lambda x:
-                not is_leveraged_token(
-                    x["baseAsset"]
-                ),
+            "EXCLUDE_LEVERAGED_TOKENS",
+            "Base asset is not a leveraged token",
+            lambda x: not is_leveraged_token(
+                x.base_asset
+            ),
             audit,
         )
 
-    else:
-
-        audit.append(
-            {
-                "criterion":
-                    "05 — Exclusion tokens levier "
-                    "(désactivé)",
-                "before":
-                    len(current),
-                "selected":
-                    len(current),
-                "rejected":
-                    0,
-                "rejection_rate":
-                    0.0,
-                "retention_rate":
-                    100.0,
-            }
-        )
-
-    # --------------------------------------------------------
-    # CRITÈRE 6 — TICKER
-    # --------------------------------------------------------
-
-    current = run_criterion(
-        "06 — Ticker 24h disponible",
+    current = apply_criterion(
         current,
-        lambda x:
-            x["ticker_found"],
+        "TICKER_AVAILABLE",
+        "24h market ticker available",
+        lambda x: x.ticker_available,
         audit,
     )
 
-    # --------------------------------------------------------
-    # CRITÈRE 7 — PRIX
-    # --------------------------------------------------------
-
-    current = run_criterion(
-        "07 — Prix minimum",
+    current = apply_criterion(
         current,
-        lambda x:
-            x["lastPrice"]
-            >= MIN_PRICE,
+        "MIN_PRICE",
+        f"Last price >= {MIN_PRICE}",
+        lambda x: x.last_price >= MIN_PRICE,
         audit,
     )
 
-    # --------------------------------------------------------
-    # CRITÈRE 8 — VOLUME
-    # --------------------------------------------------------
-
-    current = run_criterion(
-        "08 — Volume 24h minimum",
+    current = apply_criterion(
         current,
-        lambda x:
-            x["quoteVolume"]
-            >= MIN_24H_QUOTE_VOLUME,
+        "MIN_24H_QUOTE_VOLUME",
+        f"24h quote volume >= {MIN_24H_QUOTE_VOLUME:,.0f}",
+        lambda x: x.quote_volume >= MIN_24H_QUOTE_VOLUME,
         audit,
     )
 
-    # --------------------------------------------------------
-    # CRITÈRE 9 — TRADES
-    # --------------------------------------------------------
-
-    current = run_criterion(
-        "09 — Nombre minimum de trades",
+    current = apply_criterion(
         current,
-        lambda x:
-            x["trades"]
-            >= MIN_24H_TRADES,
+        "MIN_24H_TRADES",
+        f"24h trades >= {MIN_24H_TRADES:,}",
+        lambda x: x.trades >= MIN_24H_TRADES,
         audit,
     )
 
-    # --------------------------------------------------------
-    # CRITÈRE 10 — VARIATION MINIMUM
-    # --------------------------------------------------------
-
-    current = run_criterion(
-        "10 — Variation 24h minimum",
+    current = apply_criterion(
         current,
-        lambda x:
-            x["priceChangePercent"]
-            >= MIN_24H_CHANGE_PERCENT,
+        "MIN_24H_CHANGE",
+        f"24h change >= {MIN_24H_CHANGE_PERCENT:.2f}%",
+        lambda x: (
+            x.price_change_percent
+            >= MIN_24H_CHANGE_PERCENT
+        ),
         audit,
     )
 
-    # --------------------------------------------------------
-    # CRITÈRE 11 — VARIATION MAXIMUM
-    # --------------------------------------------------------
-
-    current = run_criterion(
-        "11 — Variation 24h maximum",
+    current = apply_criterion(
         current,
-        lambda x:
-            x["priceChangePercent"]
-            <= MAX_24H_CHANGE_PERCENT,
+        "MAX_24H_CHANGE",
+        f"24h change <= {MAX_24H_CHANGE_PERCENT:.2f}%",
+        lambda x: (
+            x.price_change_percent
+            <= MAX_24H_CHANGE_PERCENT
+        ),
         audit,
     )
 
-    # --------------------------------------------------------
-    # CRITÈRE 12 — SPREAD
-    # --------------------------------------------------------
-
-    def spread_condition(
-        x: dict,
-    ) -> bool:
-
-        bid = x["bidPrice"]
-        ask = x["askPrice"]
-
-        if bid <= 0 or ask <= 0:
-            return False
-
-        midpoint = (
-            bid + ask
-        ) / 2
-
-        if midpoint <= 0:
-            return False
-
-        spread = (
-            (ask - bid)
-            / midpoint
-        ) * 100
-
-        return (
-            spread
-            <= MAX_SPREAD_PERCENT
-        )
-
-    current = run_criterion(
-        "12 — Spread maximum",
+    current = apply_criterion(
         current,
-        spread_condition,
+        "MAX_SPREAD",
+        f"Spread <= {MAX_SPREAD_PERCENT:.2f}%",
+        lambda x: (
+            x.spread_percent > 0
+            and x.spread_percent <= MAX_SPREAD_PERCENT
+        ),
         audit,
     )
 
     return current, audit
 
 
-# ============================================================
-# INDICATEURS TECHNIQUES — SMA
-# ============================================================
+# ============================================================================
+# TECHNICAL INDICATORS
+# ============================================================================
 
-def sma(
-    values: list[float],
+def calculate_ema(
+    values: List[float],
     period: int,
-) -> list[float | None]:
-
-    result = [
-        None
-        for _ in values
-    ]
+) -> List[Optional[float]]:
 
     if period <= 0:
-        return result
+        return [None] * len(values)
 
     if len(values) < period:
-        return result
+        return [None] * len(values)
 
-    rolling_sum = sum(
-        values[:period]
-    )
-
-    result[period - 1] = (
-        rolling_sum / period
-    )
-
-    for i in range(
-        period,
-        len(values),
-    ):
-
-        rolling_sum += (
-            values[i]
-            - values[i - period]
-        )
-
-        result[i] = (
-            rolling_sum / period
-        )
-
-    return result
-
-
-# ============================================================
-# INDICATEURS TECHNIQUES — EMA
-# ============================================================
-
-def ema(
-    values: list[float],
-    period: int,
-) -> list[float | None]:
-
-    result = [
+    result: List[Optional[float]] = [
         None
-        for _ in values
-    ]
+    ] * len(values)
 
-    if period <= 0:
-        return result
-
-    if len(values) < period:
-        return result
-
-    seed = sum(
+    seed = statistics.fmean(
         values[:period]
-    ) / period
+    )
 
     result[period - 1] = seed
 
-    multiplier = (
-        2.0
-        / (period + 1)
-    )
+    multiplier = 2 / (period + 1)
 
     previous = seed
 
-    for i in range(
-        period,
-        len(values),
-    ):
-
-        current = (
-            (
-                values[i]
-                - previous
-            )
+    for i in range(period, len(values)):
+        previous = (
+            (values[i] - previous)
             * multiplier
             + previous
         )
 
-        result[i] = current
-        previous = current
+        result[i] = previous
 
     return result
 
 
-# ============================================================
-# INDICATEURS TECHNIQUES — RSI
-# ============================================================
-
-def rsi(
-    closes: list[float],
+def calculate_rsi(
+    values: List[float],
     period: int,
-) -> list[float | None]:
+) -> List[Optional[float]]:
 
-    result = [
+    result: List[Optional[float]] = [
         None
-        for _ in closes
-    ]
+    ] * len(values)
 
-    if (
-        period <= 0
-        or len(closes)
-        <= period
-    ):
+    if period <= 0 or len(values) <= period:
         return result
 
     gains = []
     losses = []
 
-    for i in range(
-        1,
-        len(closes),
-    ):
-
-        change = (
-            closes[i]
-            - closes[i - 1]
-        )
+    for i in range(1, len(values)):
+        change = values[i] - values[i - 1]
 
         gains.append(
             max(change, 0.0)
@@ -1200,148 +812,253 @@ def rsi(
             max(-change, 0.0)
         )
 
-    avg_gain = (
-        sum(gains[:period])
-        / period
+    avg_gain = statistics.fmean(
+        gains[:period]
     )
 
-    avg_loss = (
-        sum(losses[:period])
-        / period
+    avg_loss = statistics.fmean(
+        losses[:period]
     )
 
-    result[period] = (
-        100.0
-        if avg_loss == 0
-        else
-        100.0
-        - (
-            100.0
-            / (
-                1.0
-                + (
-                    avg_gain
-                    / avg_loss
-                )
-            )
+    def rsi_value(
+        gain: float,
+        loss: float,
+    ) -> float:
+
+        if loss == 0:
+            return 100.0
+
+        rs = gain / loss
+
+        return 100.0 - (
+            100.0 / (1.0 + rs)
         )
+
+    result[period] = rsi_value(
+        avg_gain,
+        avg_loss,
     )
 
-    for i in range(
-        period,
-        len(gains),
-    ):
+    for i in range(period, len(gains)):
 
         avg_gain = (
-            (
-                avg_gain
-                * (period - 1)
-                + gains[i]
-            )
-            / period
-        )
+            (avg_gain * (period - 1))
+            + gains[i]
+        ) / period
 
         avg_loss = (
-            (
-                avg_loss
-                * (period - 1)
-                + losses[i]
-            )
-            / period
-        )
+            (avg_loss * (period - 1))
+            + losses[i]
+        ) / period
 
-        result[i + 1] = (
-            100.0
-            if avg_loss == 0
-            else
-            100.0
-            - (
-                100.0
-                / (
-                    1.0
-                    + (
-                        avg_gain
-                        / avg_loss
-                    )
-                )
-            )
+        result[i + 1] = rsi_value(
+            avg_gain,
+            avg_loss,
         )
 
     return result
 
 
-# ============================================================
-# INDICATEURS TECHNIQUES — ATR
-# ============================================================
+def calculate_macd(
+    values: List[float],
+    fast_period: int,
+    slow_period: int,
+    signal_period: int,
+) -> Tuple[
+    List[Optional[float]],
+    List[Optional[float]],
+    List[Optional[float]],
+]:
 
-def true_ranges(
-    highs: list[float],
-    lows: list[float],
-    closes: list[float],
-) -> list[float]:
+    fast = calculate_ema(
+        values,
+        fast_period,
+    )
 
-    result = []
+    slow = calculate_ema(
+        values,
+        slow_period,
+    )
 
-    for i in range(
-        len(closes)
+    macd: List[Optional[float]] = [
+        None
+    ] * len(values)
+
+    compact_macd: List[float] = []
+    compact_indexes: List[int] = []
+
+    for i in range(len(values)):
+
+        if (
+            fast[i] is not None
+            and slow[i] is not None
+        ):
+            value = (
+                fast[i] - slow[i]
+            )
+
+            macd[i] = value
+            compact_macd.append(value)
+            compact_indexes.append(i)
+
+    signal_compact = calculate_ema(
+        compact_macd,
+        signal_period,
+    )
+
+    signal: List[Optional[float]] = [
+        None
+    ] * len(values)
+
+    histogram: List[Optional[float]] = [
+        None
+    ] * len(values)
+
+    for pos, index in enumerate(
+        compact_indexes
     ):
 
+        if signal_compact[pos] is not None:
+
+            signal[index] = (
+                signal_compact[pos]
+            )
+
+            histogram[index] = (
+                macd[index]
+                - signal[index]
+            )
+
+    return macd, signal, histogram
+
+
+def calculate_atr(
+    highs: List[float],
+    lows: List[float],
+    closes: List[float],
+    period: int,
+) -> List[Optional[float]]:
+
+    result: List[Optional[float]] = [
+        None
+    ] * len(closes)
+
+    if len(closes) <= period:
+        return result
+
+    true_ranges: List[float] = []
+
+    for i in range(len(closes)):
+
         if i == 0:
-
-            tr = (
-                highs[i]
-                - lows[i]
-            )
-
+            tr = highs[i] - lows[i]
         else:
-
             tr = max(
-                highs[i]
-                - lows[i],
+                highs[i] - lows[i],
                 abs(
-                    highs[i]
-                    - closes[i - 1]
+                    highs[i] - closes[i - 1]
                 ),
                 abs(
-                    lows[i]
-                    - closes[i - 1]
+                    lows[i] - closes[i - 1]
                 ),
             )
 
-        result.append(tr)
+        true_ranges.append(tr)
+
+    if len(true_ranges) < period:
+        return result
+
+    atr = statistics.fmean(
+        true_ranges[:period]
+    )
+
+    result[period - 1] = atr
+
+    for i in range(period, len(true_ranges)):
+
+        atr = (
+            (
+                atr * (period - 1)
+            )
+            + true_ranges[i]
+        ) / period
+
+        result[i] = atr
 
     return result
 
 
-def atr(
-    highs: list[float],
-    lows: list[float],
-    closes: list[float],
+def calculate_volume_ratio(
+    volumes: List[float],
     period: int,
-) -> list[float | None]:
+) -> List[Optional[float]]:
 
-    tr = true_ranges(
-        highs,
-        lows,
-        closes,
-    )
+    result: List[Optional[float]] = [
+        None
+    ] * len(volumes)
 
-    return sma(
-        tr,
-        period,
-    )
+    if period <= 0:
+        return result
+
+    for i in range(period - 1, len(volumes)):
+
+        window = volumes[
+            i - period + 1:i + 1
+        ]
+
+        average = statistics.fmean(window)
+
+        if average > 0:
+            result[i] = (
+                volumes[i] / average
+            )
+
+    return result
 
 
-# ============================================================
+# ============================================================================
+# TECHNICAL RESULT
+# ============================================================================
+
+@dataclass
+class TechnicalResult:
+    symbol: str
+    price: float
+
+    ema_fast: Optional[float] = None
+    ema_slow: Optional[float] = None
+
+    rsi: Optional[float] = None
+
+    macd: Optional[float] = None
+    macd_signal: Optional[float] = None
+    macd_histogram: Optional[float] = None
+
+    atr: Optional[float] = None
+    atr_percent: Optional[float] = None
+
+    volume_ratio: Optional[float] = None
+
+    ema_state: str = "N/A"
+    rsi_state: str = "N/A"
+    macd_state: str = "N/A"
+    volume_state: str = "N/A"
+
+    technical_score: float = 0.0
+
+    error: str = ""
+
+
+# ============================================================================
 # KLINES
-# ============================================================
+# ============================================================================
 
-def get_klines(
+def fetch_klines(
     symbol: str,
-) -> list[list]:
+) -> List[List[Any]]:
 
-    data = http_get_json(
-        KLINES_ENDPOINT,
+    return http_get_json(
+        "/api/v3/klines",
         {
             "symbol": symbol,
             "interval": TECHNICAL_INTERVAL,
@@ -1349,769 +1066,580 @@ def get_klines(
         },
     )
 
-    if not isinstance(
-        data,
-        list,
-    ):
-        raise RuntimeError(
-            f"Klines invalides pour {symbol}"
+
+def extract_ohlcv(
+    klines: List[List[Any]],
+) -> Tuple[
+    List[float],
+    List[float],
+    List[float],
+    List[float],
+]:
+
+    opens = []
+    highs = []
+    lows = []
+    closes = []
+    volumes = []
+
+    for candle in klines:
+
+        if len(candle) < 6:
+            continue
+
+        opens.append(
+            safe_float(candle[1])
         )
 
-    return data
-
-
-# ============================================================
-# ANALYSE TECHNIQUE
-# ============================================================
-
-def calculate_technical_indicators(
-    symbol: str,
-    klines: list[list],
-) -> dict:
-
-    minimum_required = max(
-        EMA_SLOW + 10,
-        RSI_PERIOD + 10,
-        MACD_SLOW
-        + MACD_SIGNAL
-        + 10,
-        ATR_PERIOD + 10,
-        VOLUME_MA_PERIOD + 10,
-    )
-
-    if len(klines) < minimum_required:
-
-        raise RuntimeError(
-            f"Historique insuffisant pour {symbol}: "
-            f"{len(klines)} bougies disponibles, "
-            f"{minimum_required} nécessaires."
+        highs.append(
+            safe_float(candle[2])
         )
 
-    highs = [
-        float(row[2])
-        for row in klines
-    ]
+        lows.append(
+            safe_float(candle[3])
+        )
 
-    lows = [
-        float(row[3])
-        for row in klines
-    ]
+        closes.append(
+            safe_float(candle[4])
+        )
 
-    closes = [
-        float(row[4])
-        for row in klines
-    ]
+        volumes.append(
+            safe_float(candle[5])
+        )
 
-    volumes = [
-        float(row[5])
-        for row in klines
-    ]
-
-    # --------------------------------------------------------
-    # EMA
-    # --------------------------------------------------------
-
-    ema_fast = ema(
-        closes,
-        EMA_FAST,
-    )
-
-    ema_slow = ema(
-        closes,
-        EMA_SLOW,
-    )
-
-    # --------------------------------------------------------
-    # RSI
-    # --------------------------------------------------------
-
-    rsi_values = rsi(
-        closes,
-        RSI_PERIOD,
-    )
-
-    # --------------------------------------------------------
-    # MACD
-    # --------------------------------------------------------
-
-    macd_fast = ema(
-        closes,
-        MACD_FAST,
-    )
-
-    macd_slow = ema(
-        closes,
-        MACD_SLOW,
-    )
-
-    macd_line = []
-
-    for fast, slow in zip(
-        macd_fast,
-        macd_slow,
-    ):
-
-        if (
-            fast is None
-            or slow is None
-        ):
-
-            macd_line.append(None)
-
-        else:
-
-            macd_line.append(
-                fast - slow
-            )
-
-    macd_valid = [
-        value
-        for value in macd_line
-        if value is not None
-    ]
-
-    signal_values = ema(
-        macd_valid,
-        MACD_SIGNAL,
-    )
-
-    signal_line = [
-        None
-        for _ in macd_line
-    ]
-
-    signal_start = (
-        len(macd_line)
-        - len(macd_valid)
-    )
-
-    for i, value in enumerate(
-        signal_values
-    ):
-
-        signal_line[
-            signal_start + i
-        ] = value
-
-    # --------------------------------------------------------
-    # ATR
-    # --------------------------------------------------------
-
-    atr_values = atr(
+    return (
+        opens,
         highs,
         lows,
         closes,
-        ATR_PERIOD,
-    )
-
-    # --------------------------------------------------------
-    # VOLUME MOYEN
-    # --------------------------------------------------------
-
-    volume_ma = sma(
         volumes,
-        VOLUME_MA_PERIOD,
     )
 
-    # --------------------------------------------------------
-    # DERNIÈRES VALEURS
-    # --------------------------------------------------------
 
-    last_close = closes[-1]
+# ============================================================================
+# TECHNICAL SCORING
+# ============================================================================
 
-    last_ema_fast = (
-        ema_fast[-1]
-    )
+def build_technical_result(
+    symbol: str,
+    klines: List[List[Any]],
+) -> TechnicalResult:
 
-    last_ema_slow = (
-        ema_slow[-1]
-    )
+    (
+        opens,
+        highs,
+        lows,
+        closes,
+        volumes,
+    ) = extract_ohlcv(klines)
 
-    last_rsi = (
-        rsi_values[-1]
-    )
-
-    last_macd = (
-        macd_line[-1]
-    )
-
-    last_signal = (
-        signal_line[-1]
-    )
-
-    last_atr = (
-        atr_values[-1]
-    )
-
-    last_volume_ma = (
-        volume_ma[-1]
-    )
-
-    last_volume = volumes[-1]
-
-    # --------------------------------------------------------
-    # TENDANCE EMA
-    # --------------------------------------------------------
-
-    if (
-        last_ema_fast is not None
-        and last_ema_slow is not None
-    ):
-
-        if (
-            last_close > last_ema_fast
-            and last_ema_fast
-            > last_ema_slow
-        ):
-
-            ema_trend = "BULLISH"
-
-        elif (
-            last_close < last_ema_fast
-            and last_ema_fast
-            < last_ema_slow
-        ):
-
-            ema_trend = "BEARISH"
-
-        else:
-
-            ema_trend = "MIXED"
-
-    else:
-
-        ema_trend = "UNKNOWN"
-
-    # --------------------------------------------------------
-    # MACD
-    # --------------------------------------------------------
-
-    if (
-        last_macd is not None
-        and last_signal is not None
-    ):
-
-        if last_macd > last_signal:
-
-            macd_state = "BULLISH"
-
-        elif last_macd < last_signal:
-
-            macd_state = "BEARISH"
-
-        else:
-
-            macd_state = "NEUTRAL"
-
-    else:
-
-        macd_state = "UNKNOWN"
-
-    # --------------------------------------------------------
-    # RSI
-    # --------------------------------------------------------
-
-    if last_rsi is None:
-
-        rsi_state = "UNKNOWN"
-
-    elif last_rsi >= 70:
-
-        rsi_state = "OVERBOUGHT"
-
-    elif last_rsi <= 30:
-
-        rsi_state = "OVERSOLD"
-
-    elif last_rsi >= 50:
-
-        rsi_state = "BULLISH"
-
-    else:
-
-        rsi_state = "BEARISH"
-
-    # --------------------------------------------------------
-    # VOLUME RELATIF
-    # --------------------------------------------------------
-
-    if (
-        last_volume_ma is not None
-        and last_volume_ma > 0
-    ):
-
-        volume_ratio = (
-            last_volume
-            / last_volume_ma
+    if len(closes) < 60:
+        raise RuntimeError(
+            f"Not enough candles: {len(closes)}"
         )
 
-    else:
+    result = TechnicalResult(
+        symbol=symbol,
+        price=closes[-1],
+    )
 
-        volume_ratio = 0.0
+    score = 0.0
+    maximum = 0.0
 
-    # --------------------------------------------------------
-    # ATR %
-    # --------------------------------------------------------
+    # ------------------------------------------------------------------------
+    # EMA
+    # ------------------------------------------------------------------------
 
-    if (
-        last_atr is not None
-        and last_close > 0
-    ):
+    if ENABLE_EMA:
 
-        atr_percent = (
-            last_atr
-            / last_close
-        ) * 100.0
+        ema_fast = calculate_ema(
+            closes,
+            EMA_FAST_PERIOD,
+        )
 
-    else:
+        ema_slow = calculate_ema(
+            closes,
+            EMA_SLOW_PERIOD,
+        )
 
-        atr_percent = 0.0
+        result.ema_fast = ema_fast[-1]
+        result.ema_slow = ema_slow[-1]
 
-    # --------------------------------------------------------
-    # SCORE TECHNIQUE
-    #
-    # Ce score est uniquement un classement.
-    # Il ne constitue PAS un signal de trading.
-    # --------------------------------------------------------
+        if (
+            result.ema_fast is not None
+            and result.ema_slow is not None
+        ):
 
-    technical_score = 0.0
+            if (
+                result.price > result.ema_fast
+                and result.ema_fast
+                > result.ema_slow
+            ):
+                result.ema_state = "BULLISH"
+                score += 25
 
-    # EMA — 30 points
-    if ema_trend == "BULLISH":
+            elif (
+                result.price < result.ema_fast
+                and result.ema_fast
+                < result.ema_slow
+            ):
+                result.ema_state = "BEARISH"
+                score += 0
 
-        technical_score += 30
+            else:
+                result.ema_state = "MIXED"
+                score += 12
 
-    elif ema_trend == "MIXED":
+        maximum += 25
 
-        technical_score += 20
+    # ------------------------------------------------------------------------
+    # RSI
+    # ------------------------------------------------------------------------
 
-    elif ema_trend == "BEARISH":
+    if ENABLE_RSI:
 
-        technical_score += 10
+        rsi_values = calculate_rsi(
+            closes,
+            RSI_PERIOD,
+        )
 
-    # MACD — 25 points
-    if macd_state == "BULLISH":
+        result.rsi = rsi_values[-1]
 
-        technical_score += 25
+        if result.rsi is not None:
 
-    elif macd_state == "NEUTRAL":
+            if 50 <= result.rsi <= 70:
+                result.rsi_state = "BULLISH"
+                score += 20
 
-        technical_score += 15
+            elif 30 <= result.rsi < 50:
+                result.rsi_state = "WEAK"
+                score += 8
 
-    elif macd_state == "BEARISH":
+            elif result.rsi > 70:
+                result.rsi_state = "OVERBOUGHT"
+                score += 10
 
-        technical_score += 5
+            else:
+                result.rsi_state = "OVERSOLD"
+                score += 5
 
-    # RSI — 25 points
-    if last_rsi is not None:
+        maximum += 20
 
-        if 50 <= last_rsi < 70:
+    # ------------------------------------------------------------------------
+    # MACD
+    # ------------------------------------------------------------------------
 
-            technical_score += 25
+    if ENABLE_MACD:
 
-        elif 40 <= last_rsi < 50:
+        (
+            macd,
+            signal,
+            histogram,
+        ) = calculate_macd(
+            closes,
+            MACD_FAST_PERIOD,
+            MACD_SLOW_PERIOD,
+            MACD_SIGNAL_PERIOD,
+        )
 
-            technical_score += 15
+        result.macd = macd[-1]
+        result.macd_signal = signal[-1]
+        result.macd_histogram = histogram[-1]
 
-        elif 70 <= last_rsi < 80:
+        if (
+            result.macd is not None
+            and result.macd_signal is not None
+            and result.macd_histogram is not None
+        ):
 
-            technical_score += 10
+            if (
+                result.macd > result.macd_signal
+                and result.macd_histogram > 0
+            ):
+                result.macd_state = "BULLISH"
+                score += 20
 
-        elif 30 <= last_rsi < 40:
+            elif result.macd < result.macd_signal:
+                result.macd_state = "BEARISH"
+                score += 0
 
-            technical_score += 10
+            else:
+                result.macd_state = "MIXED"
+                score += 10
 
-        else:
+        maximum += 20
 
-            technical_score += 5
+    # ------------------------------------------------------------------------
+    # ATR
+    # ------------------------------------------------------------------------
 
-    # Volume relatif — 20 points
-    if volume_ratio >= 1.5:
+    if ENABLE_ATR:
 
-        technical_score += 20
+        atr_values = calculate_atr(
+            highs,
+            lows,
+            closes,
+            ATR_PERIOD,
+        )
 
-    elif volume_ratio >= 1.0:
+        result.atr = atr_values[-1]
 
-        technical_score += 15
+        if (
+            result.atr is not None
+            and result.price > 0
+        ):
 
-    elif volume_ratio >= 0.75:
+            result.atr_percent = (
+                result.atr
+                / result.price
+                * 100
+            )
 
-        technical_score += 10
+        # ATR n'est pas ici un signal directionnel.
+        # On lui donne donc une contribution neutre
+        # au score mais on le conserve comme métrique.
+        maximum += 15
 
-    else:
+        if result.atr_percent is not None:
 
-        technical_score += 5
+            if 0.5 <= result.atr_percent <= 5:
+                score += 15
 
-    return {
-        "symbol": symbol,
-        "close": last_close,
-        "emaFast": last_ema_fast,
-        "emaSlow": last_ema_slow,
-        "rsi": last_rsi,
-        "macd": last_macd,
-        "macdSignal": last_signal,
-        "atr": last_atr,
-        "atrPercent": atr_percent,
-        "volume": last_volume,
-        "volumeMA": last_volume_ma,
-        "volumeRatio": volume_ratio,
-        "emaTrend": ema_trend,
-        "rsiState": rsi_state,
-        "macdState": macd_state,
-        "technicalScore": round(
-            technical_score,
-            1,
-        ),
-    }
+            elif result.atr_percent < 0.5:
+                score += 8
+
+            else:
+                score += 5
+
+    # ------------------------------------------------------------------------
+    # VOLUME
+    # ------------------------------------------------------------------------
+
+    if ENABLE_VOLUME_RATIO:
+
+        ratios = calculate_volume_ratio(
+            volumes,
+            VOLUME_MA_PERIOD,
+        )
+
+        result.volume_ratio = ratios[-1]
+
+        if result.volume_ratio is not None:
+
+            if result.volume_ratio >= 1.5:
+                result.volume_state = "HIGH"
+                score += 20
+
+            elif result.volume_ratio >= 1.0:
+                result.volume_state = "NORMAL"
+                score += 12
+
+            else:
+                result.volume_state = "LOW"
+                score += 5
+
+        maximum += 20
+
+    if maximum > 0:
+        result.technical_score = (
+            score / maximum * 100
+        )
+
+    return result
 
 
-def analyze_one_asset(
-    record: dict,
-) -> dict:
-
-    symbol = record["symbol"]
+def analyze_symbol(
+    symbol: str,
+) -> TechnicalResult:
 
     try:
 
-        klines = get_klines(
-            symbol
+        klines = fetch_klines(symbol)
+
+        return build_technical_result(
+            symbol,
+            klines,
         )
-
-        indicators = (
-            calculate_technical_indicators(
-                symbol,
-                klines,
-            )
-        )
-
-        result = dict(record)
-
-        result["technical"] = (
-            indicators
-        )
-
-        result["technicalStatus"] = (
-            "OK"
-        )
-
-        return result
 
     except Exception as exc:
 
-        LOGGER.warning(
-            "Analyse technique échouée "
-            "pour %s : %s",
-            symbol,
-            exc,
+        return TechnicalResult(
+            symbol=symbol,
+            price=0.0,
+            error=str(exc),
         )
-
-        result = dict(record)
-
-        result["technical"] = {}
-
-        result["technicalStatus"] = (
-            f"ERROR: {exc}"
-        )
-
-        return result
 
 
 def run_technical_analysis(
-    records: list[dict],
-) -> tuple[list[dict], dict]:
+    symbols: List[SymbolRecord],
+) -> List[TechnicalResult]:
 
     if not TECHNICAL_ENABLED:
+        return []
 
-        LOGGER.info(
-            "Analyse technique désactivée."
-        )
+    selected = symbols[:]
 
-        return (
-            records,
-            {
-                "requested": 0,
-                "processed": 0,
-                "successful": 0,
-                "failed": 0,
-                "limited": False,
-            },
-        )
+    capped = False
 
-    original_count = len(records)
-
-    limited = False
-
-    # Protection contre un trop grand nombre
-    # de requêtes klines.
     if (
         TECHNICAL_MAX_ASSETS > 0
-        and len(records)
-        > TECHNICAL_MAX_ASSETS
+        and len(selected) > TECHNICAL_MAX_ASSETS
     ):
+        selected = sorted(
+            selected,
+            key=lambda x: x.quote_volume,
+            reverse=True,
+        )[:TECHNICAL_MAX_ASSETS]
 
-        LOGGER.warning(
-            "Univers technique réduit de %d à %d actifs.",
-            len(records),
-            TECHNICAL_MAX_ASSETS,
+        capped = True
+
+    log(
+        f"Technical analysis: "
+        f"{len(selected)} assets"
+        + (
+            " (capped)"
+            if capped
+            else ""
         )
-
-        records = records[
-            :TECHNICAL_MAX_ASSETS
-        ]
-
-        limited = True
-
-    LOGGER.info(
-        "Analyse technique de %d actif(s)...",
-        len(records),
     )
 
-    if not records:
+    results: List[TechnicalResult] = []
 
-        return (
-            [],
-            {
-                "requested": 0,
-                "processed": 0,
-                "successful": 0,
-                "failed": 0,
-                "limited": limited,
-            },
-        )
-
-    results = []
-
-    workers = max(
-        1,
-        min(
-            TECHNICAL_WORKERS,
-            len(records),
-        ),
-    )
-
-    with ThreadPoolExecutor(
-        max_workers=workers
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=TECHNICAL_WORKERS
     ) as executor:
 
         futures = {
             executor.submit(
-                analyze_one_asset,
-                record,
-            ): record
-            for record in records
+                analyze_symbol,
+                item.symbol,
+            ): item.symbol
+            for item in selected
         }
 
-        for future in as_completed(
+        completed = 0
+        total = len(futures)
+
+        for future in concurrent.futures.as_completed(
             futures
         ):
 
+            symbol = futures[future]
+
             try:
-
-                results.append(
-                    future.result()
-                )
-
+                result = future.result()
             except Exception as exc:
-
-                record = dict(
-                    futures[future]
+                result = TechnicalResult(
+                    symbol=symbol,
+                    price=0.0,
+                    error=str(exc),
                 )
 
-                record[
-                    "technical"
-                ] = {}
+            results.append(result)
 
-                record[
-                    "technicalStatus"
-                ] = (
-                    f"ERROR: {exc}"
+            completed += 1
+
+            if (
+                completed == total
+                or completed % 25 == 0
+            ):
+                log(
+                    f"Technical progress: "
+                    f"{completed}/{total}"
                 )
-
-                results.append(
-                    record
-                )
-
-    successful = sum(
-        1
-        for item in results
-        if item.get(
-            "technicalStatus"
-        ) == "OK"
-    )
-
-    failed = (
-        len(results)
-        - successful
-    )
 
     results.sort(
-        key=lambda x:
-            x.get(
-                "technical",
-                {}
-            ).get(
-                "technicalScore",
-                -1,
-            ),
+        key=lambda x: x.technical_score,
         reverse=True,
     )
 
-    return (
-        results,
-        {
-            "requested": original_count,
-            "processed": len(results),
-            "successful": successful,
-            "failed": failed,
-            "limited": limited,
-        },
-    )
+    return results
 
 
-# ============================================================
-# FORMATAGE
-# ============================================================
+# ============================================================================
+# EMAIL REPORT
+# ============================================================================
 
-def format_number(
-    value,
-    decimals=2,
-) -> str:
-
-    if value is None:
-        return "N/A"
-
-    try:
-        return f"{float(value):,.{decimals}f}"
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return "N/A"
-
-
-def format_volume(
-    value,
-) -> str:
-
-    try:
-        value = float(value)
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return "N/A"
-
-    if value >= 1_000_000_000:
-
-        return (
-            f"{value / 1_000_000_000:.2f} Md"
-        )
-
-    if value >= 1_000_000:
-
-        return (
-            f"{value / 1_000_000:.2f} M"
-        )
-
-    if value >= 1_000:
-
-        return (
-            f"{value / 1_000:.1f} K"
-        )
-
-    return f"{value:.0f}"
-
-
-def format_price(
-    value,
-) -> str:
-
-    try:
-        value = float(value)
-
-    except (
-        TypeError,
-        ValueError,
-    ):
-        return "N/A"
-
-    if value >= 1000:
-
-        return f"{value:,.2f}"
-
-    if value >= 1:
-
-        return f"{value:,.4f}"
-
-    if value >= 0.01:
-
-        return f"{value:.6f}"
-
-    return f"{value:.10f}"
-
-
-# ============================================================
-# EMAIL
-# ============================================================
-
-def build_email_body(
-    universe: list[dict],
-    audit: list[dict],
-    final_records: list[dict],
-    technical_stats: dict,
+def format_criterion_table(
+    audit: List[CriterionResult],
 ) -> str:
 
     lines = []
 
     lines.append(
-        "BINANCE PROGRAMMABLE SCREENER"
+        "CRITERE | AVANT | SELECTIONNES | REJETES | "
+        "RETENTION | REJET"
+    )
+
+    lines.append("-" * 105)
+
+    for item in audit:
+
+        lines.append(
+            f"{item.name} | "
+            f"{item.before:,} | "
+            f"{item.selected:,} | "
+            f"{item.rejected:,} | "
+            f"{item.retention_percent:.2f}% | "
+            f"{item.rejection_percent:.2f}%"
+        )
+
+    return "\n".join(lines)
+
+
+def format_technical_results(
+    results: List[TechnicalResult],
+) -> str:
+
+    if not results:
+        return "Aucun résultat technique."
+
+    lines = []
+
+    lines.append(
+        "RANG | SYMBOL | PRICE | SCORE | EMA | RSI | "
+        "MACD | ATR% | VOL RATIO"
+    )
+
+    lines.append("-" * 125)
+
+    rank = 0
+
+    for result in results:
+
+        if result.error:
+            continue
+
+        rank += 1
+
+        if rank > EMAIL_TOP_RESULTS:
+            break
+
+        price = (
+            f"{result.price:.10g}"
+            if result.price
+            else "-"
+        )
+
+        rsi = (
+            f"{result.rsi:.2f}"
+            if result.rsi is not None
+            else "-"
+        )
+
+        atr = (
+            f"{result.atr_percent:.2f}%"
+            if result.atr_percent is not None
+            else "-"
+        )
+
+        volume_ratio = (
+            f"{result.volume_ratio:.2f}"
+            if result.volume_ratio is not None
+            else "-"
+        )
+
+        lines.append(
+            f"{rank} | "
+            f"{result.symbol} | "
+            f"{price} | "
+            f"{result.technical_score:.1f} | "
+            f"{result.ema_state} | "
+            f"{rsi} | "
+            f"{result.macd_state} | "
+            f"{atr} | "
+            f"{volume_ratio}"
+        )
+
+    if rank == 0:
+        return "Aucun résultat technique exploitable."
+
+    return "\n".join(lines)
+
+
+def build_email_body(
+    universe: List[SymbolRecord],
+    selected: List[SymbolRecord],
+    audit: List[CriterionResult],
+    technical_results: List[TechnicalResult],
+    duration_seconds: float,
+) -> str:
+
+    technical_errors = sum(
+        1
+        for x in technical_results
+        if x.error
+    )
+
+    successful_technical = (
+        len(technical_results)
+        - technical_errors
+    )
+
+    lines: List[str] = []
+
+    lines.append(
+        "BINANCE SCREENER"
+    )
+
+    lines.append("=" * 100)
+
+    lines.append(
+        f"Date UTC : "
+        f"{utc_now().strftime('%Y-%m-%d %H:%M:%S')}"
     )
 
     lines.append(
-        "=" * 70
+        f"Durée : {duration_seconds:.1f} secondes"
     )
 
     lines.append("")
 
     lines.append(
-        "OBJECTIF"
+        "RESUME"
+    )
+
+    lines.append("-" * 100)
+
+    lines.append(
+        f"Univers Binance Spot initial : "
+        f"{len(universe):,}"
     )
 
     lines.append(
-        "Recenser l'univers Binance, appliquer "
-        "les critères séquentiellement, mesurer "
-        "l'impact de chaque critère puis analyser "
-        "techniquement les actifs survivants."
+        f"Actifs après tous les critères : "
+        f"{len(selected):,}"
+    )
+
+    if universe:
+        final_retention = (
+            len(selected)
+            / len(universe)
+            * 100
+        )
+    else:
+        final_retention = 0.0
+
+    lines.append(
+        f"Rétention finale : "
+        f"{final_retention:.2f}%"
     )
 
     lines.append("")
 
-    # --------------------------------------------------------
-    # CONFIGURATION
-    # --------------------------------------------------------
+    lines.append(
+        "PARAMETRES"
+    )
+
+    lines.append("-" * 100)
 
     lines.append(
-        "CONFIGURATION DU SCREENING"
+        f"Quotes : {', '.join(sorted(QUOTE_ASSETS))}"
     )
 
     lines.append(
-        "-" * 70
-    )
-
-    lines.append(
-        "Quote assets : "
-        + ", ".join(
-            sorted(QUOTE_ASSETS)
-        )
-    )
-
-    lines.append(
-        "Volume 24h minimum : "
-        + format_volume(
-            MIN_24H_QUOTE_VOLUME
-        )
+        f"Volume 24h minimum : "
+        f"{MIN_24H_QUOTE_VOLUME:,.0f}"
     )
 
     lines.append(
@@ -2120,12 +1648,9 @@ def build_email_body(
     )
 
     lines.append(
-        f"Variation 24h minimum : "
-        f"{MIN_24H_CHANGE_PERCENT:.2f}%"
-    )
-
-    lines.append(
-        f"Variation 24h maximum : "
+        f"Variation 24h : "
+        f"{MIN_24H_CHANGE_PERCENT:.2f}% "
+        f"à "
         f"{MAX_24H_CHANGE_PERCENT:.2f}%"
     )
 
@@ -2134,486 +1659,311 @@ def build_email_body(
         f"{MAX_SPREAD_PERCENT:.2f}%"
     )
 
-    lines.append("")
-
-    # --------------------------------------------------------
-    # AUDIT DES CRITÈRES
-    # --------------------------------------------------------
-
     lines.append(
-        "AUDIT DES CRITÈRES"
+        f"Exclusion stablecoins : "
+        f"{EXCLUDE_STABLECOINS}"
     )
 
     lines.append(
-        "-" * 70
-    )
-
-    lines.append(
-        f"{'CRITÈRE':40} "
-        f"{'AVANT':>8} "
-        f"{'OK':>8} "
-        f"{'REJET':>8} "
-        f"{'REJET %':>9}"
-    )
-
-    for item in audit:
-
-        lines.append(
-            f"{item['criterion'][:40]:40} "
-            f"{item['before']:>8,} "
-            f"{item['selected']:>8,} "
-            f"{item['rejected']:>8,} "
-            f"{item['rejection_rate']:>8.2f}%"
-        )
-
-    lines.append("")
-
-    lines.append(
-        f"UNIVERS INITIAL : "
-        f"{len(universe):,}"
-    )
-
-    lines.append(
-        f"UNIVERS FINAL : "
-        f"{len(final_records):,}"
+        f"Exclusion leveraged tokens : "
+        f"{EXCLUDE_LEVERAGED_TOKENS}"
     )
 
     lines.append("")
 
-    # --------------------------------------------------------
-    # ANALYSE TECHNIQUE
-    # --------------------------------------------------------
+    lines.append(
+        "AUDIT DES CRITERES"
+    )
+
+    lines.append("-" * 100)
+
+    lines.append(
+        format_criterion_table(audit)
+    )
+
+    lines.append("")
 
     lines.append(
         "ANALYSE TECHNIQUE"
     )
 
-    lines.append(
-        "-" * 70
-    )
+    lines.append("-" * 100)
 
     lines.append(
-        f"Actifs sélectionnés : "
-        f"{technical_stats['requested']:,}"
+        f"Activée : {TECHNICAL_ENABLED}"
     )
 
-    lines.append(
-        f"Actifs analysés : "
-        f"{technical_stats['processed']:,}"
-    )
+    if TECHNICAL_ENABLED:
 
-    lines.append(
-        f"Analyses réussies : "
-        f"{technical_stats['successful']:,}"
-    )
-
-    lines.append(
-        f"Analyses échouées : "
-        f"{technical_stats['failed']:,}"
-    )
-
-    lines.append(
-        "Limitation technique : "
-        + (
-            "OUI"
-            if technical_stats["limited"]
-            else "NON"
+        lines.append(
+            f"Timeframe : "
+            f"{TECHNICAL_INTERVAL}"
         )
-    )
 
-    lines.append(
-        f"Timeframe : "
-        f"{TECHNICAL_INTERVAL}"
-    )
+        lines.append(
+            f"Actifs analysés : "
+            f"{len(technical_results):,}"
+        )
+
+        lines.append(
+            f"Analyses réussies : "
+            f"{successful_technical:,}"
+        )
+
+        lines.append(
+            f"Erreurs techniques : "
+            f"{technical_errors:,}"
+        )
+
+        if TECHNICAL_MAX_ASSETS > 0:
+            lines.append(
+                f"Limite technique : "
+                f"{TECHNICAL_MAX_ASSETS:,}"
+            )
+        else:
+            lines.append(
+                "Limite technique : aucune"
+            )
+
+        lines.append("")
+
+        lines.append(
+            format_technical_results(
+                technical_results
+            )
+        )
 
     lines.append("")
 
-    # --------------------------------------------------------
-    # TOP RÉSULTATS
-    # --------------------------------------------------------
-
     lines.append(
-        f"TOP {EMAIL_TOP_RESULTS} — ANALYSE TECHNIQUE"
+        "TOP ACTIFS APRES FILTRAGE"
     )
 
-    lines.append(
-        "-" * 70
-    )
+    lines.append("-" * 100)
 
-    technical_results = [
-        item
-        for item in final_records
-        if item.get(
-            "technicalStatus"
-        ) == "OK"
-    ]
-
-    technical_results.sort(
-        key=lambda x:
-            x.get(
-                "technical",
-                {}
-            ).get(
-                "technicalScore",
-                -1,
-            ),
+    top_selected = sorted(
+        selected,
+        key=lambda x: x.quote_volume,
         reverse=True,
-    )
+    )[:EMAIL_TOP_RESULTS]
 
-    top_results = technical_results[
-        :EMAIL_TOP_RESULTS
-    ]
-
-    if not top_results:
-
+    if not top_selected:
         lines.append(
-            "Aucun actif n'a atteint "
-            "l'analyse technique avec succès."
+            "Aucun actif ne satisfait tous les critères."
         )
-
     else:
 
-        for index, item in enumerate(
-            top_results,
-            start=1,
-        ):
+        lines.append(
+            "SYMBOL | PRICE | 24H% | VOLUME 24H | "
+            "TRADES | SPREAD"
+        )
 
-            tech = item[
-                "technical"
-            ]
+        lines.append("-" * 100)
 
-            lines.append(
-                f"{index}. {item['symbol']}"
-            )
+        for item in top_selected:
 
             lines.append(
-                f"   Score technique : "
-                f"{tech.get('technicalScore', 'N/A')}/100"
+                f"{item.symbol} | "
+                f"{item.last_price:.10g} | "
+                f"{item.price_change_percent:.2f}% | "
+                f"{number(item.quote_volume)} | "
+                f"{item.trades:,} | "
+                f"{item.spread_percent:.4f}%"
             )
 
-            lines.append(
-                f"   Variation 24h : "
-                f"{format_number(item['priceChangePercent'])}%"
-            )
-
-            lines.append(
-                f"   Volume 24h : "
-                f"{format_volume(item['quoteVolume'])}"
-            )
-
-            lines.append(
-                f"   Trades 24h : "
-                f"{item['trades']:,}"
-            )
-
-            lines.append(
-                f"   Prix : "
-                f"{format_price(item['lastPrice'])}"
-            )
-
-            lines.append(
-                f"   EMA {EMA_FAST} : "
-                f"{format_price(tech.get('emaFast'))}"
-            )
-
-            lines.append(
-                f"   EMA {EMA_SLOW} : "
-                f"{format_price(tech.get('emaSlow'))}"
-            )
-
-            lines.append(
-                f"   Tendance EMA : "
-                f"{tech.get('emaTrend', 'N/A')}"
-            )
-
-            lines.append(
-                f"   RSI {RSI_PERIOD} : "
-                f"{format_number(tech.get('rsi'))}"
-            )
-
-            lines.append(
-                f"   État RSI : "
-                f"{tech.get('rsiState', 'N/A')}"
-            )
-
-            lines.append(
-                f"   MACD : "
-                f"{format_number(tech.get('macd'))}"
-            )
-
-            lines.append(
-                f"   Signal MACD : "
-                f"{format_number(tech.get('macdSignal'))}"
-            )
-
-            lines.append(
-                f"   État MACD : "
-                f"{tech.get('macdState', 'N/A')}"
-            )
-
-            lines.append(
-                f"   ATR : "
-                f"{format_price(tech.get('atr'))}"
-            )
-
-            lines.append(
-                f"   ATR % : "
-                f"{format_number(tech.get('atrPercent'))}%"
-            )
-
-            lines.append(
-                f"   Volume / moyenne : "
-                f"{format_number(tech.get('volumeRatio'))}x"
-            )
-
-            lines.append("")
-
-    # --------------------------------------------------------
-    # AVERTISSEMENT
-    # --------------------------------------------------------
+    lines.append("")
 
     lines.append(
-        "IMPORTANT"
-    )
-
-    lines.append(
-        "-" * 70
-    )
-
-    lines.append(
-        "Le score technique actuel sert uniquement "
-        "au classement des actifs. Il ne constitue "
-        "pas un signal automatique d'achat ou de vente."
+        "FIN DU RAPPORT"
     )
 
     return "\n".join(lines)
 
 
 def send_email(
+    subject: str,
     body: str,
-    result_count: int,
 ) -> None:
 
-    email_user = os.getenv(
-        "EMAIL_USER"
-    )
-
-    email_pass = os.getenv(
-        "EMAIL_PASS"
-    )
-
-    email_to = os.getenv(
-        "EMAIL_TO"
-    )
-
-    if not email_user:
-        LOGGER.warning(
-            "EMAIL_USER absent."
+    if not EMAIL_USER:
+        raise RuntimeError(
+            "EMAIL_USER secret is missing."
         )
-        return
 
-    if not email_pass:
-        LOGGER.warning(
-            "EMAIL_PASS absent."
+    if not EMAIL_PASS:
+        raise RuntimeError(
+            "EMAIL_PASS secret is missing."
         )
-        return
 
-    if not email_to:
-        LOGGER.warning(
-            "EMAIL_TO absent."
+    if not EMAIL_TO:
+        raise RuntimeError(
+            "EMAIL_TO secret is missing."
         )
-        return
 
-    msg = MIMEMultipart()
+    recipients = [
+        x.strip()
+        for x in EMAIL_TO.split(",")
+        if x.strip()
+    ]
 
-    msg["From"] = email_user
-    msg["To"] = email_to
-
-    msg["Subject"] = (
-        "Binance Screener — "
-        f"{result_count} actif(s) final(aux)"
-    )
-
-    msg.attach(
-        MIMEText(
-            body,
-            "plain",
-            "utf-8",
+    if not recipients:
+        raise RuntimeError(
+            "EMAIL_TO does not contain a valid recipient."
         )
-    )
+
+    message = EmailMessage()
+
+    message["From"] = EMAIL_USER
+    message["To"] = ", ".join(recipients)
+    message["Subject"] = subject
+
+    message.set_content(body)
+
+    context = ssl.create_default_context()
+
+    with smtplib.SMTP_SSL(
+        EMAIL_HOST,
+        EMAIL_PORT,
+        context=context,
+        timeout=30,
+    ) as server:
+
+        server.login(
+            EMAIL_USER,
+            EMAIL_PASS,
+        )
+
+        server.send_message(message)
+
+
+# ============================================================================
+# MAIN
+# ============================================================================
+
+def main() -> int:
+
+    started = time.time()
+
+    log("=" * 80)
+    log("BINANCE SCREENER START")
+    log("=" * 80)
 
     try:
 
-        LOGGER.info(
-            "Connexion SMTP Gmail..."
+        # --------------------------------------------------------------------
+        # 1. UNIVERS
+        # --------------------------------------------------------------------
+
+        exchange_info = fetch_exchange_info()
+
+        universe = build_universe(
+            exchange_info
         )
 
-        with smtplib.SMTP_SSL(
-            "smtp.gmail.com",
-            465,
-            timeout=30,
-        ) as server:
-
-            server.login(
-                email_user,
-                email_pass,
-            )
-
-            server.send_message(
-                msg
-            )
-
-        LOGGER.info(
-            "Rapport email envoyé."
+        log(
+            f"Raw Binance symbol universe: "
+            f"{len(universe):,}"
         )
+
+        # --------------------------------------------------------------------
+        # 2. MARKET DATA
+        # --------------------------------------------------------------------
+
+        tickers = fetch_24h_tickers()
+
+        book_tickers = fetch_book_tickers()
+
+        merge_market_data(
+            universe,
+            tickers,
+            book_tickers,
+        )
+
+        log(
+            f"24h tickers received: "
+            f"{len(tickers):,}"
+        )
+
+        log(
+            f"Book tickers received: "
+            f"{len(book_tickers):,}"
+        )
+
+        # --------------------------------------------------------------------
+        # 3. CRITERES
+        # --------------------------------------------------------------------
+
+        selected, audit = apply_all_criteria(
+            universe
+        )
+
+        log(
+            f"Final selected universe: "
+            f"{len(selected):,}"
+        )
+
+        # --------------------------------------------------------------------
+        # 4. TECHNICAL ANALYSIS
+        # --------------------------------------------------------------------
+
+        technical_results = run_technical_analysis(
+            selected
+        )
+
+        # --------------------------------------------------------------------
+        # 5. EMAIL
+        # --------------------------------------------------------------------
+
+        duration = time.time() - started
+
+        body = build_email_body(
+            universe=universe,
+            selected=selected,
+            audit=audit,
+            technical_results=technical_results,
+            duration_seconds=duration,
+        )
+
+        subject = (
+            "Binance Screener | "
+            f"{len(selected)} actifs sélectionnés | "
+            f"{utc_now().strftime('%Y-%m-%d %H:%M UTC')}"
+        )
+
+        log("Sending email report...")
+
+        send_email(
+            subject=subject,
+            body=body,
+        )
+
+        log("Email sent successfully.")
+
+        log("=" * 80)
+        log(
+            f"BINANCE SCREENER END | "
+            f"{duration:.1f}s"
+        )
+        log("=" * 80)
+
+        return 0
 
     except Exception as exc:
 
-        LOGGER.exception(
-            "Erreur d'envoi email : %s",
-            exc,
+        duration = time.time() - started
+
+        log("=" * 80)
+        log(
+            f"FATAL ERROR after "
+            f"{duration:.1f}s"
         )
-
-        raise
-
-
-# ============================================================
-# MAIN
-# ============================================================
-
-def main() -> None:
-
-    start_time = time.time()
-
-    LOGGER.info(
-        "=" * 70
-    )
-
-    LOGGER.info(
-        "BINANCE PROGRAMMABLE SCREENER"
-    )
-
-    LOGGER.info(
-        "=" * 70
-    )
-
-    # --------------------------------------------------------
-    # 1. UNIVERS BINANCE
-    # --------------------------------------------------------
-
-    exchange_info = (
-        get_exchange_info()
-    )
-
-    universe = build_universe(
-        exchange_info
-    )
-
-    LOGGER.info(
-        "Univers Binance recensé : %d actifs.",
-        len(universe),
-    )
-
-    if not universe:
-
-        raise RuntimeError(
-            "L'univers Binance est vide."
+        log(
+            f"{type(exc).__name__}: {exc}"
         )
+        log("=" * 80)
 
-    # --------------------------------------------------------
-    # 2. MARKET DATA
-    # --------------------------------------------------------
+        return 1
 
-    tickers = (
-        get_24h_tickers()
-    )
-
-    records = merge_market_data(
-        universe,
-        tickers,
-    )
-
-    # --------------------------------------------------------
-    # 3. SCREENING
-    # --------------------------------------------------------
-
-    final_records, audit = (
-        apply_screening(records)
-    )
-
-    LOGGER.info(
-        "Univers final après screening : %d",
-        len(final_records),
-    )
-
-    # --------------------------------------------------------
-    # 4. ANALYSE TECHNIQUE
-    # --------------------------------------------------------
-
-    final_records, technical_stats = (
-        run_technical_analysis(
-            final_records
-        )
-    )
-
-    # --------------------------------------------------------
-    # 5. EMAIL
-    # --------------------------------------------------------
-
-    email_body = (
-        build_email_body(
-            universe=universe,
-            audit=audit,
-            final_records=final_records,
-            technical_stats=technical_stats,
-        )
-    )
-
-    send_email(
-        body=email_body,
-        result_count=len(final_records),
-    )
-
-    # --------------------------------------------------------
-    # 6. LOG FINAL
-    # --------------------------------------------------------
-
-    elapsed = (
-        time.time()
-        - start_time
-    )
-
-    LOGGER.info(
-        "=" * 70
-    )
-
-    LOGGER.info(
-        "SCREENING TERMINÉ"
-    )
-
-    LOGGER.info(
-        "Univers initial : %d",
-        len(universe),
-    )
-
-    LOGGER.info(
-        "Univers final : %d",
-        len(final_records),
-    )
-
-    LOGGER.info(
-        "Durée : %.1f secondes",
-        elapsed,
-    )
-
-    LOGGER.info(
-        "=" * 70
-    )
-
-
-# ============================================================
-# ENTRY POINT
-# ============================================================
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
