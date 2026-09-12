@@ -12,106 +12,100 @@ jobs:
   run-screener:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
-    with:
-      python-version: "3.11"
+        with:
+          python-version: "3.11"
 
-  - name: Verify files
-    run: |
-      echo "Repository:"
-      pwd
-      echo
-      echo "Files:"
-      find . -maxdepth 3 -type f | sort
-      echo
-      echo "Python:"
-      python --version
+      - name: Verify files
+        run: |
+          echo "Repository:"
+          pwd
+          echo
+          echo "Files:"
+          find . -maxdepth 3 -type f | sort
+          echo
+          echo "Python:"
+          python --version
 
-  - name: Run Binance Multi-Market Screener
-    env:
-      BINANCE_BASE_URL: "https://data-api.binance.vision"
-      BINANCE_SPOT_BASE_URL: "https://data-api.binance.vision"
-      BINANCE_USDM_BASE_URL: "https://fapi.binance.com"
-      BINANCE_COINM_BASE_URL: "https://dapi.binance.com"
-      BINANCE_OPTIONS_BASE_URL: "https://eapi.binance.com"
-      BINANCE_TOKENIZED_BASE_URL: "https://api.binance.com"
+      - name: Run Binance Multi-Market Screener
+        env:
+          BINANCE_BASE_URL: "https://data-api.binance.vision"
+          BINANCE_SPOT_BASE_URL: "https://data-api.binance.vision"
+          BINANCE_USDM_BASE_URL: "https://fapi.binance.com"
+          BINANCE_COINM_BASE_URL: "https://dapi.binance.com"
+          BINANCE_OPTIONS_BASE_URL: "https://eapi.binance.com"
+          BINANCE_TOKENIZED_BASE_URL: "https://api.binance.com"
 
-      BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
+          BINANCE_API_KEY: ${{ secrets.BINANCE_API_KEY }}
 
-      ENABLE_SPOT: "true"
-      ENABLE_MARGIN: "true"
-      ENABLE_USDM_FUTURES: "true"
-      ENABLE_COINM_FUTURES: "true"
-      ENABLE_OPTIONS: "true"
-      ENABLE_TOKENIZED_STOCKS: "true"
+          ENABLE_SPOT: "true"
+          ENABLE_MARGIN: "true"
+          ENABLE_USDM_FUTURES: "true"
+          ENABLE_COINM_FUTURES: "true"
+          ENABLE_OPTIONS: "true"
+          ENABLE_TOKENIZED_STOCKS: "true"
 
-      QUOTE_ASSETS: "USDT"
-      EXCLUDE_STABLECOINS: "true"
-      EXCLUDE_LEVERAGED_TOKENS: "true"
+          QUOTE_ASSETS: "USDT"
+          EXCLUDE_STABLECOINS: "true"
+          EXCLUDE_LEVERAGED_TOKENS: "true"
+          MIN_24H_QUOTE_VOLUME: "5000000"
+          MIN_24H_TRADES: "1000"
+          MIN_24H_CHANGE_PERCENT: "-100"
+          MAX_24H_CHANGE_PERCENT: "100"
+          MAX_SPREAD_PERCENT: "0.50"
+          MIN_PRICE: "0.00000001"
 
-      MIN_24H_QUOTE_VOLUME: "5000000"
-      MIN_24H_TRADES: "1000"
-      MIN_24H_CHANGE_PERCENT: "-100"
-      MAX_24H_CHANGE_PERCENT: "100"
-      MAX_SPREAD_PERCENT: "0.50"
-      MIN_PRICE: "0.00000001"
+          FUTURES_QUOTE_ASSETS: "USDT,USDC"
+          FUTURES_CONTRACT_TYPES: "PERPETUAL"
+          MIN_FUTURES_QUOTE_VOLUME: "5000000"
+          MIN_FUTURES_TRADES: "1000"
+          MAX_FUTURES_SPREAD_PERCENT: "0.20"
+          MIN_FUNDING_RATE_PERCENT: "-1.0"
+          MAX_FUNDING_RATE_PERCENT: "1.0"
 
-      FUTURES_QUOTE_ASSETS: "USDT,USDC"
-      FUTURES_CONTRACT_TYPES: "PERPETUAL"
-      MIN_FUTURES_QUOTE_VOLUME: "5000000"
-      MIN_FUTURES_TRADES: "1000"
-      MAX_FUTURES_SPREAD_PERCENT: "0.20"
-      MIN_FUNDING_RATE_PERCENT: "-1.0"
-      MAX_FUNDING_RATE_PERCENT: "1.0"
+          OPTIONS_QUOTE_ASSETS: "USDT"
+          MIN_OPTIONS_QUOTE_VOLUME: "0"
+          MIN_OPTIONS_TRADES: "0"
+          MAX_OPTIONS_SPREAD_PERCENT: "5.0"
+          OPTIONS_MAX_ASSETS: "500"
 
-      OPTIONS_QUOTE_ASSETS: "USDT"
-      MIN_OPTIONS_QUOTE_VOLUME: "0"
-      MIN_OPTIONS_TRADES: "0"
-      MAX_OPTIONS_SPREAD_PERCENT: "5.0"
-      OPTIONS_MAX_ASSETS: "500"
+          TOKENIZED_MAX_ASSETS: "100"
+          MAX_TOKENIZED_SPREAD_PERCENT: "1.0"
 
-      TOKENIZED_MAX_ASSETS: "100"
-      MAX_TOKENIZED_SPREAD_PERCENT: "1.0"
+          TECHNICAL_ENABLED: "true"
+          TECHNICAL_INTERVAL: "1h"
+          TECHNICAL_KLINES_LIMIT: "250"
+          ENABLE_EMA: "true"
+          ENABLE_RSI: "true"
+          ENABLE_MACD: "true"
+          ENABLE_ATR: "true"
+          ENABLE_VOLUME_RATIO: "true"
+          EMA_FAST_PERIOD: "20"
+          EMA_SLOW_PERIOD: "50"
+          RSI_PERIOD: "14"
+          MACD_FAST_PERIOD: "12"
+          MACD_SLOW_PERIOD: "26"
+          MACD_SIGNAL_PERIOD: "9"
+          ATR_PERIOD: "14"
+          VOLUME_MA_PERIOD: "20"
+          TECHNICAL_MAX_ASSETS: "300"
+          TECHNICAL_WORKERS: "8"
 
-      TECHNICAL_ENABLED: "true"
-      TECHNICAL_INTERVAL: "1h"
-      TECHNICAL_KLINES_LIMIT: "250"
+          HTTP_TIMEOUT_SECONDS: "20"
+          HTTP_RETRIES: "3"
 
-      ENABLE_EMA: "true"
-      ENABLE_RSI: "true"
-      ENABLE_MACD: "true"
-      ENABLE_ATR: "true"
-      ENABLE_VOLUME_RATIO: "true"
+          EMAIL_HOST: "smtp.gmail.com"
+          EMAIL_PORT: "465"
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          EMAIL_TOP_RESULTS: "50"
 
-      EMA_FAST_PERIOD: "20"
-      EMA_SLOW_PERIOD: "50"
-      RSI_PERIOD: "14"
-
-      MACD_FAST_PERIOD: "12"
-      MACD_SLOW_PERIOD: "26"
-      MACD_SIGNAL_PERIOD: "9"
-
-      ATR_PERIOD: "14"
-      VOLUME_MA_PERIOD: "20"
-
-      TECHNICAL_MAX_ASSETS: "300"
-      TECHNICAL_WORKERS: "8"
-
-      HTTP_TIMEOUT_SECONDS: "20"
-      HTTP_RETRIES: "3"
-
-      EMAIL_HOST: "smtp.gmail.com"
-      EMAIL_PORT: "465"
-      EMAIL_USER: ${{ secrets.EMAIL_USER }}
-      EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-      EMAIL_TO: ${{ secrets.EMAIL_TO }}
-      EMAIL_TOP_RESULTS: "50"
-
-    run: |
-      python -u screener.py
+        run: |
+          python -u screener.py
