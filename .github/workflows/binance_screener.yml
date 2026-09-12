@@ -51,7 +51,7 @@ jobs:
           ENABLE_OPTIONS: "true"
           ENABLE_TOKENIZED_STOCKS: "true"
 
-          QUOTE_ASSETS: "USDT"
+          QUOTE_ASSETS: ""
           EXCLUDE_STABLECOINS: "true"
           EXCLUDE_LEVERAGED_TOKENS: "true"
           MIN_24H_QUOTE_VOLUME: "5000000"
