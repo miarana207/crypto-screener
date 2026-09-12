@@ -1,14 +1,10 @@
-name: Binance Automated Screener
+name: Binance Screener
 
 on:
-  schedule:
-    # Exécution automatique toutes les heures.
-    # Pour toutes les 30 minutes :
-    # - cron: "*/30 * * * *"
-    - cron: "0 * * * *"
-
-  # Permet une exécution manuelle depuis GitHub.
   workflow_dispatch:
+
+  schedule:
+    - cron: "0 * * * *"
 
 permissions:
   contents: read
@@ -16,7 +12,6 @@ permissions:
 jobs:
   run-screener:
     runs-on: ubuntu-latest
-
     timeout-minutes: 15
 
     steps:
@@ -27,92 +22,111 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
 
-      - name: Install dependencies
+      - name: Verify files
         run: |
-          python -m pip install --upgrade pip
+          echo "Repository:"
+          pwd
+          echo
+          echo "Files:"
+          find . -maxdepth 3 -type f | sort
+          echo
+          echo "Python:"
+          python --version
 
-          if [ -f requirements.txt ]; then
-            pip install -r requirements.txt
-          fi
-
-      - name: Run Binance screener
+      - name: Run Binance Screener
         env:
-          PYTHONUNBUFFERED: "1"
+          # ------------------------------------------------------------
+          # BINANCE
+          # ------------------------------------------------------------
+          BINANCE_BASE_URL: "https://data-api.binance.vision"
 
-          # ==================================================
+          # ------------------------------------------------------------
+          # UNIVERSE
+          # ------------------------------------------------------------
+          # Quotes autorisés, séparés par des virgules.
+          QUOTE_ASSETS: "USDT"
+
+          # Exclusions configurables.
+          EXCLUDE_STABLECOINS: "true"
+          EXCLUDE_LEVERAGED_TOKENS: "true"
+
+          # ------------------------------------------------------------
+          # CRITERES DE SELECTION
+          # ------------------------------------------------------------
+          MIN_24H_QUOTE_VOLUME: "5000000"
+          MIN_24H_TRADES: "1000"
+
+          # Valeurs volontairement larges au départ.
+          # Elles permettent de ne pas imposer artificiellement
+          # une direction au marché.
+          MIN_24H_CHANGE_PERCENT: "-100"
+          MAX_24H_CHANGE_PERCENT: "100"
+
+          # Spread maximum en %.
+          MAX_SPREAD_PERCENT: "0.50"
+
+          # Prix minimum.
+          MIN_PRICE: "0.00000001"
+
+          # ------------------------------------------------------------
+          # ANALYSE TECHNIQUE
+          # ------------------------------------------------------------
+          TECHNICAL_ENABLED: "true"
+
+          # Timeframe.
+          TECHNICAL_INTERVAL: "1h"
+
+          # Nombre de bougies historiques.
+          TECHNICAL_KLINES_LIMIT: "250"
+
+          # Indicateurs activables individuellement.
+          ENABLE_EMA: "true"
+          ENABLE_RSI: "true"
+          ENABLE_MACD: "true"
+          ENABLE_ATR: "true"
+          ENABLE_VOLUME_RATIO: "true"
+
+          # Périodes.
+          EMA_FAST_PERIOD: "20"
+          EMA_SLOW_PERIOD: "50"
+
+          RSI_PERIOD: "14"
+
+          MACD_FAST_PERIOD: "12"
+          MACD_SLOW_PERIOD: "26"
+          MACD_SIGNAL_PERIOD: "9"
+
+          ATR_PERIOD: "14"
+          VOLUME_MA_PERIOD: "20"
+
+          # Nombre maximum d'actifs auxquels appliquer
+          # l'analyse technique.
+          #
+          # 0 = tous les survivants.
+          #
+          # Pour commencer, 300 est plus prudent vis-à-vis
+          # du temps d'exécution et des limites API.
+          TECHNICAL_MAX_ASSETS: "300"
+
+          # Nombre de requêtes techniques simultanées.
+          TECHNICAL_WORKERS: "8"
+
+          # ------------------------------------------------------------
+          # API
+          # ------------------------------------------------------------
+          HTTP_TIMEOUT_SECONDS: "20"
+          HTTP_RETRIES: "3"
+
+          # ------------------------------------------------------------
           # EMAIL
-          # ==================================================
+          # ------------------------------------------------------------
+          EMAIL_HOST: "smtp.gmail.com"
+          EMAIL_PORT: "465"
 
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
-
-          # ==================================================
-          # BINANCE
-          # ==================================================
-
-          BINANCE_BASE_URL: "https://data-api.binance.vision"
-
-          # ==================================================
-          # SCREENING PARAMETERS
-          # ==================================================
-
-          QUOTE_ASSETS: "USDT"
-
-          MIN_24H_QUOTE_VOLUME: "5000000"
-          MIN_24H_TRADES: "1000"
-
-          MIN_24H_CHANGE_PERCENT: "-100"
-          MAX_24H_CHANGE_PERCENT: "100"
-
-          MAX_SPREAD_PERCENT: "0.50"
-
-          MIN_PRICE: "0.00000001"
-
-          # ==================================================
-          # EXCLUSIONS
-          # ==================================================
-
-          EXCLUDE_STABLECOINS: "true"
-          EXCLUDE_LEVERAGED_TOKENS: "true"
-
-          # ==================================================
-          # TECHNICAL ANALYSIS
-          # ==================================================
-
-          TECHNICAL_ENABLED: "true"
-
-          TECHNICAL_INTERVAL: "1h"
-          TECHNICAL_KLINES_LIMIT: "250"
-
-          EMA_FAST: "20"
-          EMA_SLOW: "50"
-
-          RSI_PERIOD: "14"
-
-          MACD_FAST: "12"
-          MACD_SLOW: "26"
-          MACD_SIGNAL: "9"
-
-          ATR_PERIOD: "14"
-
-          VOLUME_MA_PERIOD: "20"
-
-          # ==================================================
-          # API PROTECTION
-          # ==================================================
-
-          TECHNICAL_MAX_ASSETS: "500"
-          TECHNICAL_WORKERS: "8"
-
-          API_TIMEOUT: "20"
-          API_RETRIES: "3"
-
-          # ==================================================
-          # EMAIL REPORT
-          # ==================================================
 
           EMAIL_TOP_RESULTS: "50"
 
