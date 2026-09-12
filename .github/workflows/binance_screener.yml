@@ -73,7 +73,7 @@ jobs:
           VOLATILITY_ENABLED: "true"
           VOLATILITY_INTERVAL: "1h"
           VOLATILITY_ATR_PERIOD: "14"
-          MIN_VOLATILITY_PERCENT: "0.75"
+          MIN_VOLATILITY_PERCENT: "0.60"
           MAX_VOLATILITY_PERCENT: ""
 
           MIN_PRICE: "0.00000001"
