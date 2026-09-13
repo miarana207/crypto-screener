@@ -54,9 +54,6 @@ jobs:
           QUOTE_ASSETS: ""
           EXCLUDE_STABLECOINS: "true"
           EXCLUDE_LEVERAGED_TOKENS: "true"
-          MIN_24H_TRADES: "1000"
-          MIN_24H_CHANGE_PERCENT: "-100"
-          MAX_24H_CHANGE_PERCENT: "100"
           MAX_SPREAD_PERCENT: "0.10"
           # Volume 24h minimum : premier filtre de liquidité.
           MIN_24H_QUOTE_VOLUME: "1000000"
@@ -85,7 +82,6 @@ jobs:
           ATR_HIGH_PERCENT: "1.50"
           ATR_EXTREME_PERCENT: "2.50"
 
-          MIN_PRICE: "0.00000001"
 
           FUTURES_QUOTE_ASSETS: "USDT,USDC"
           FUTURES_CONTRACT_TYPES: "PERPETUAL"
@@ -104,24 +100,9 @@ jobs:
           TOKENIZED_MAX_ASSETS: "100"
           MAX_TOKENIZED_SPREAD_PERCENT: "1.0"
 
-          TECHNICAL_ENABLED: "true"
-          TECHNICAL_INTERVAL: "1h"
-          TECHNICAL_KLINES_LIMIT: "250"
-          ENABLE_EMA: "true"
-          ENABLE_RSI: "true"
-          ENABLE_MACD: "true"
-          ENABLE_ATR: "true"
-          ENABLE_VOLUME_RATIO: "true"
-          EMA_FAST_PERIOD: "20"
-          EMA_SLOW_PERIOD: "50"
-          RSI_PERIOD: "14"
-          MACD_FAST_PERIOD: "12"
-          MACD_SLOW_PERIOD: "26"
-          MACD_SIGNAL_PERIOD: "9"
-          ATR_PERIOD: "14"
-          VOLUME_MA_PERIOD: "20"
-          TECHNICAL_MAX_ASSETS: "300"
-          TECHNICAL_WORKERS: "8"
+          # Analyse finale : CHOP + ADX + ATR uniquement.
+          REGIME_WORKERS: "8"
+          REGIME_KLINES_LIMIT: "250"
 
           HTTP_TIMEOUT_SECONDS: "20"
           HTTP_RETRIES: "3"
