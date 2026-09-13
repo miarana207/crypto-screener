@@ -70,14 +70,15 @@ jobs:
           ORDER_BOOK_DEPTH_WORKERS: "8"
 
           # Régime Spot : CHOP + ADX + ATR au même niveau, après le spread.
+          # CHOP : nature structurelle ; ADX : force directionnelle ; ATR : intensité.
           # Ces trois indicateurs sont descriptifs : aucun ne rejette un actif.
           REGIME_ENABLED: "true"
           REGIME_INTERVAL: "1h"
           CHOP_PERIOD: "14"
           ADX_PERIOD: "14"
           ATR_REGIME_PERIOD: "14"
-          CHOP_RANGE_THRESHOLD: "61.8"
-          CHOP_TREND_THRESHOLD: "38.2"
+          CHOP_RANGE_THRESHOLD: "55"
+          CHOP_TREND_THRESHOLD: "40"
           ADX_TREND_THRESHOLD: "25"
           ADX_STRONG_THRESHOLD: "40"
           ATR_LOW_PERCENT: "0.50"
