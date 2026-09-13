@@ -1,4 +1,4 @@
-name: Binance Screener
+name: Binance Screener V3
 
 "on":
   workflow_dispatch:
@@ -115,4 +115,4 @@ jobs:
           EMAIL_TOP_RESULTS: "50"
 
         run: |
-          python -u screener.py
+          python -u screener_v3_chop_adx_atr_table.py
