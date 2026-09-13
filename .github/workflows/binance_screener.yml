@@ -69,12 +69,20 @@ jobs:
           MIN_ORDER_BOOK_DEPTH_QUOTE: "25000"
           ORDER_BOOK_DEPTH_WORKERS: "8"
 
-          # Volatilité Spot : filtre ATR(14) sur bougies 1h, après le spread.
-          VOLATILITY_ENABLED: "true"
-          VOLATILITY_INTERVAL: "1h"
-          VOLATILITY_ATR_PERIOD: "14"
-          MIN_VOLATILITY_PERCENT: "0.60"
-          MAX_VOLATILITY_PERCENT: ""
+          # Régime Spot : CHOP + ADX + ATR au même niveau, après le spread.
+          # Ces trois indicateurs sont descriptifs : aucun ne rejette un actif.
+          REGIME_ENABLED: "true"
+          REGIME_INTERVAL: "1h"
+          CHOP_PERIOD: "14"
+          ADX_PERIOD: "14"
+          ATR_REGIME_PERIOD: "14"
+          CHOP_RANGE_THRESHOLD: "61.8"
+          CHOP_TREND_THRESHOLD: "38.2"
+          ADX_TREND_THRESHOLD: "25"
+          ADX_STRONG_THRESHOLD: "40"
+          ATR_LOW_PERCENT: "0.50"
+          ATR_HIGH_PERCENT: "1.50"
+          ATR_EXTREME_PERCENT: "2.50"
 
           MIN_PRICE: "0.00000001"
 
