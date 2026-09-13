@@ -55,20 +55,20 @@ jobs:
           EXCLUDE_STABLECOINS: "true"
           EXCLUDE_LEVERAGED_TOKENS: "true"
           MAX_SPREAD_PERCENT: "0.10"
-          # Volume 24h minimum : premier filtre de liquidité.
           MIN_24H_QUOTE_VOLUME: "1000000"
 
-          # Order Book Depth Spot : profondeur cumulée bids + asks dans ±0,25 %
-          # du prix médian. Seuil notionnel minimal : 25 000 unités de quote.
           ORDER_BOOK_DEPTH_ENABLED: "true"
           ORDER_BOOK_DEPTH_LIMIT: "100"
           ORDER_BOOK_DEPTH_PCT: "0.25"
           MIN_ORDER_BOOK_DEPTH_QUOTE: "25000"
           ORDER_BOOK_DEPTH_WORKERS: "8"
+          DEPTH_VOLUME_ANOMALY_PERCENT: "100"
 
-          # Régime Spot : CHOP + ADX + ATR au même niveau, après le spread.
-          # CHOP : nature structurelle ; ADX : force directionnelle ; ATR : intensité.
-          # Ces trois indicateurs sont descriptifs : aucun ne rejette un actif.
+          # Liste EXPLICITE des bases connues comme tokenisées/spéciales.
+          # Aucun suffixe de ticker n'est utilisé pour inférer cette catégorie.
+          BINANCE_TOKENIZED_SPOT_BASES: "AAPLB,CRCLB,DRAMB,MSTRB,MUB,NVDAB,QQQB,SNDKB,SKHYB,SNXXB,SPCXB,TSLAB"
+          BASE_ASSET_SUMMARY_LIMIT: "20"
+
           REGIME_ENABLED: "true"
           REGIME_INTERVAL: "1h"
           CHOP_PERIOD: "14"
@@ -81,7 +81,6 @@ jobs:
           ATR_LOW_PERCENT: "0.50"
           ATR_HIGH_PERCENT: "1.50"
           ATR_EXTREME_PERCENT: "2.50"
-
 
           FUTURES_QUOTE_ASSETS: "USDT,USDC"
           FUTURES_CONTRACT_TYPES: "PERPETUAL"
@@ -100,7 +99,6 @@ jobs:
           TOKENIZED_MAX_ASSETS: "100"
           MAX_TOKENIZED_SPREAD_PERCENT: "1.0"
 
-          # Analyse finale : CHOP + ADX + ATR uniquement.
           REGIME_WORKERS: "8"
           REGIME_KLINES_LIMIT: "250"
 
