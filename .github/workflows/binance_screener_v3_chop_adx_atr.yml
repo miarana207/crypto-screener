@@ -67,7 +67,7 @@ jobs:
 
           # Liste EXPLICITE des bases connues comme tokenisées/spéciales.
           # Aucun suffixe de ticker n'est utilisé pour inférer cette catégorie.
-          BINANCE_TOKENIZED_SPOT_BASES: "AAPLB,CRCLB,DRAMB,MRVLB,MSTRB,MUB,NVDAB,QQQB,SNDKB,SKHYB,SNXXB,SPCXB,TSLAB"
+          BINANCE_TOKENIZED_SPOT_BASES: "TQQQB,AAPLB,CRCLB,DRAMB,MRVLB,MSTRB,MUB,NVDAB,QQQB,SNDKB,SKHYB,SNXXB,SPCXB,TSLAB"
           BASE_ASSET_SUMMARY_LIMIT: "20"
 
           REGIME_ENABLED: "true"
